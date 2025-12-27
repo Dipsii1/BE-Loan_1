@@ -22,25 +22,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
 
-app.get("/db-test", async (req, res) => {
-  try {
-    const [rows] = await pool.query("SELECT 1 AS test");
-    res.json({
-      success: true,
-      message: "Database connected ✅",
-      result: rows
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Database NOT connected ❌",
-      error: error.message
-    });
-  }
-});
-
-
-
 // catch 404 and forward to error handler
 app.use(function (req, res, next) {
   next(createError(404));
