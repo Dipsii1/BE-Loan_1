@@ -46,7 +46,7 @@ enum StatusAkun {
 ====================== */
 
 model Role {
-  id        Int      @id
+  id        Int      @id() @default(autoincrement())
   nama_role String   @unique @db.VarChar(50)
 
   profiles  Profile[]
@@ -78,6 +78,7 @@ model CreditApplication {
   nik            String      @db.VarChar(20)
   nama_lengkap   String      @db.VarChar(150)
   alamat         String      @db.Text
+  tempat_lahir    String      @db.VarChar(100)
   tanggal_lahir  DateTime    @db.Date
   email          String      @db.VarChar(150)
   jenis_kredit   JenisKredit
