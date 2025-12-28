@@ -1,10 +1,10 @@
 generator client {
   provider = "prisma-client-js"
-  output   = "./generated/client"
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ------------------
@@ -68,9 +68,9 @@ model User {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  role           Role                @relation(fields: [id_role], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  profile        Profile?
-  statusChanges  ApplicationStatus[]
+  role          Role                @relation(fields: [id_role], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  profile       Profile?
+  statusChanges ApplicationStatus[]
 
   @@index([email])
   @@map("users")
@@ -88,10 +88,13 @@ model CreditApplication {
   plafond        Decimal     @db.Decimal(15, 2)
   jaminan        Jaminan
   created_at     DateTime    @default(now())
+  updated_at     DateTime    @updatedAt
 
   statuses ApplicationStatus[]
 
   @@index([kode_pengajuan])
+  @@index([nik])
+  @@index([email])
   @@map("credit_application")
 }
 
@@ -102,13 +105,14 @@ model ApplicationStatus {
   changed_by     Int
   changed_role   ChangedRole
   catatan        String?      @db.Text
-  changed_at     DateTime     @default(now())
+  created_at     DateTime     @default(now())
   updated_at     DateTime     @updatedAt
 
   application CreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
   user        User              @relation(fields: [changed_by], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([application_id])
+  @@index([status])
   @@map("application_status")
 }
 
