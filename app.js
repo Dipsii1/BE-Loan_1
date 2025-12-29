@@ -39,7 +39,7 @@ app.options('*', cors());
 
 app.use('/', indexRouter);
 app.use('/users', usersRouter);
-app.use('/credit-aplications', creditAplicationsRouter);
+app.use('/credit-applications', creditAplicationsRouter);
 app.use('/application-status', statusApplicationsRouter);
 app.use('/profile', profileRouter);
 
