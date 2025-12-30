@@ -1,13 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const creditController = require('../controllers/creditAplicationControllers');
+const controller = require('../controllers/creditAplicationControllers');
 const { authenticate } = require('../middleware/auth');
 
-
-router.get('/', authenticate, creditController.getAll);
-router.get('/:kode_pengajuan', authenticate, creditController.getByKode);
-router.post('/', authenticate, creditController.create);
-router.put('/:kode_pengajuan', authenticate, creditController.update);
-router.delete('/:kode_pengajuan', authenticate, creditController.remove);
+router.get('/', controller.getAll);
+router.get('/my', authenticate, controller.getByUserId);
+router.get('/:id', authenticate, controller.getById);
+router.post('/', authenticate, controller.create);
+router.put('/:id', authenticate, controller.update);
+router.delete('/:id', authenticate, controller.remove);
 
 module.exports = router;

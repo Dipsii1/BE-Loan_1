@@ -1,8 +1,36 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const { PrismaClient } = require('@prisma/client')
+const prisma = new PrismaClient()
 
-// get all - hanya data milik user yang login
-exports.getAll = async function (req, res) {
+// GET ALL (ADMIN / PUBLIC)
+exports.getAll = async (req, res) => {
+  try {
+    const data = await prisma.creditApplication.findMany({
+      include: {
+        statuses: {
+          orderBy: { created_at: 'desc' },
+        },
+        profile: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+    })
+
+    res.json({ code: 200, data })
+  } catch (err) {
+    res.status(500).json({
+      code: 500,
+      message: err.message,
+    })
+  }
+}
+
+// GET BY USER LOGIN
+exports.getByUserId = async (req, res) => {
   try {
     const data = await prisma.creditApplication.findMany({
       where: {
@@ -10,235 +38,161 @@ exports.getAll = async function (req, res) {
       },
       include: {
         statuses: {
-          orderBy: {
-            created_at: 'desc',
-          },
+          orderBy: { created_at: 'desc' },
         },
       },
-      orderBy: {
-        created_at: 'desc',
-      },
-    });
+      orderBy: { created_at: 'desc' },
+    })
 
-    return res.status(200).json({
-      code: 200,
-      message: 'Data pengajuan kredit berhasil ditemukan',
-      data,
-    });
-  } catch (error) {
-    console.error('Get all credit applications error:', error);
-    return res.status(500).json({
+    res.json({ code: 200, data })
+  } catch (err) {
+    res.status(500).json({
       code: 500,
-      message: error.message || 'Terjadi kesalahan saat mengambil data',
-    });
+      message: err.message,
+    })
   }
-};
+}
 
-// get by kode - hanya jika milik user yang login
-exports.getByKode = async function (req, res) {
+// GET BY ID
+exports.getById = async (req, res) => {
+  const id = Number(req.params.id)
+
   try {
-    const data = await prisma.creditApplication.findFirst({
-      where: {
-        kode_pengajuan: req.params.kode_pengajuan,
-        profile_id: req.user.id, // Pastikan milik user yang login
-      },
+    const data = await prisma.creditApplication.findUnique({
+      where: { id },
       include: {
         statuses: {
-          orderBy: {
-            created_at: 'desc',
-          },
+          orderBy: { created_at: 'desc' },
         },
       },
-    });
+    })
 
     if (!data) {
       return res.status(404).json({
-        code: 404,
-        message: 'Data pengajuan kredit tidak ditemukan',
-      });
+        message: 'Data tidak ditemukan',
+      })
     }
 
-    return res.status(200).json({
-      code: 200,
-      message: 'Data pengajuan kredit berhasil ditemukan',
-      data,
-    });
-  } catch (error) {
-    console.error('Get credit application by kode error:', error);
-    return res.status(500).json({
-      code: 500,
-      message: error.message || 'Terjadi kesalahan saat mengambil data',
-    });
+    res.json({ data })
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    })
   }
-};
+}
 
-// create
-exports.create = async function (req, res) {
+// CREATE
+exports.create = async (req, res) => {
   try {
-    const userId = req.user.id; // Dari Supabase auth
-    const userEmail = req.user.email;
+    const userId = req.user.id
+    const email = req.user.email
 
-    //  Cari atau buat profile
+    // pastikan profile ada
     let profile = await prisma.profile.findUnique({
-      where: {
-        id: userId,
-      },
-    });
+      where: { id: userId },
+    })
 
-    // Jika profile belum ada, buat otomatis
     if (!profile) {
       profile = await prisma.profile.create({
         data: {
           id: userId,
-          email: userEmail,
-          // Tambahkan field lain jika diperlukan
+          email,
+          name: req.body.nama_lengkap,
+          role_id: 1,
         },
-      });
+      })
     }
 
-    //  Generate kode pengajuan
-    const lastData = await prisma.creditApplication.findFirst({
-      where: {
-        kode_pengajuan: {
-          startsWith: 'L-',
-        },
-      },
-      orderBy: {
-        kode_pengajuan: 'desc',
-      },
-    });
-
-    let nextNumber = 1;
-    if (lastData) {
-      const lastNumber = parseInt(lastData.kode_pengajuan.split('-')[1]);
-      nextNumber = lastNumber + 1;
-    }
-
-    const kodePengajuan = `L-${String(nextNumber).padStart(3, '0')}`;
-
-    //  Create credit application
     const data = await prisma.creditApplication.create({
       data: {
-        kode_pengajuan: kodePengajuan,
         nik: req.body.nik,
         nama_lengkap: req.body.nama_lengkap,
+        alamat: req.body.alamat,
         tempat_lahir: req.body.tempat_lahir,
         tanggal_lahir: new Date(req.body.tanggal_lahir),
-        alamat: req.body.alamat,
-        email: userEmail,
+        email,
         jenis_kredit: req.body.jenis_kredit,
         plafond: req.body.plafond,
         jaminan: req.body.jaminan,
         profile_id: userId,
-
+        kode_pengajuan: `L-${Date.now()}`,
         statuses: {
           create: {
             status: 'DIAJUKAN',
             changed_by: userId,
-            catatan: 'Pengajuan dibuat oleh nasabah',
+            catatan: 'Pengajuan dibuat',
           },
         },
       },
-      include: {
-        statuses: true,
-      },
-    });
+    })
 
-    return res.status(201).json({
-      code: 201,
-      message: 'Pengajuan kredit berhasil ditambahkan',
-      data,
-    });
-  } catch (error) {
-    console.error('Create credit application error:', error);
-    return res.status(400).json({
-      code: 400,
-      message: error.message || 'Gagal menambahkan data',
-    });
+    res.status(201).json({ data })
+  } catch (err) {
+    res.status(400).json({
+      message: err.message,
+    })
   }
-};
+}
 
-// update - hanya jika milik user yang login
-exports.update = async function (req, res) {
+// UPDATE
+exports.update = async (req, res) => {
+  const id = Number(req.params.id)
+
   try {
-    // Cek apakah data milik user yang login
     const existing = await prisma.creditApplication.findFirst({
       where: {
-        kode_pengajuan: req.params.kode_pengajuan,
+        id,
         profile_id: req.user.id,
       },
-    });
+    })
 
     if (!existing) {
-      return res.status(404).json({
-        code: 404,
-        message: 'Data tidak ditemukan atau Anda tidak memiliki akses',
-      });
+      return res.status(403).json({
+        message: 'Tidak punya akses',
+      })
     }
 
     const data = await prisma.creditApplication.update({
-      where: {
-        kode_pengajuan: req.params.kode_pengajuan,
-      },
-      data: {
-        nik: req.body.nik,
-        nama_lengkap: req.body.nama_lengkap,
-        tempat_lahir: req.body.tempat_lahir,
-        tanggal_lahir: new Date(req.body.tanggal_lahir),
-        alamat: req.body.alamat,
-        jenis_kredit: req.body.jenis_kredit,
-        plafond: req.body.plafond,
-        jaminan: req.body.jaminan,
-      },
-    });
+      where: { id },
+      data: req.body,
+    })
 
-    return res.status(200).json({
-      code: 200,
-      message: 'Pengajuan kredit berhasil diperbarui',
-      data,
-    });
-  } catch (error) {
-    console.error('Update credit application error:', error);
-    return res.status(400).json({
-      code: 400,
-      message: error.message || 'Gagal memperbarui data',
-    });
+    res.json({ data })
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    })
   }
-};
+}
 
-// delete - hanya jika milik user yang login
-exports.remove = async function (req, res) {
+// DELETE
+exports.remove = async (req, res) => {
+  const id = Number(req.params.id)
+
   try {
-    // Cek apakah data milik user yang login
     const existing = await prisma.creditApplication.findFirst({
       where: {
-        kode_pengajuan: req.params.kode_pengajuan,
+        id,
         profile_id: req.user.id,
       },
-    });
+    })
 
     if (!existing) {
-      return res.status(404).json({
-        code: 404,
-        message: 'Data tidak ditemukan atau Anda tidak memiliki akses',
-      });
+      return res.status(403).json({
+        message: 'Tidak punya akses',
+      })
     }
 
     await prisma.creditApplication.delete({
-      where: {
-        kode_pengajuan: req.params.kode_pengajuan,
-      },
-    });
+      where: { id },
+    })
 
-    return res.status(200).json({
-      code: 200,
-      message: 'Pengajuan kredit berhasil dihapus',
-    });
-  } catch (error) {
-    console.error('Delete credit application error:', error);
-    return res.status(400).json({
-      code: 400,
-      message: error.message || 'Gagal menghapus data',
-    });
+    res.json({
+      message: 'Berhasil dihapus',
+    })
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    })
   }
-};
+}

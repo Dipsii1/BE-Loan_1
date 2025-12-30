@@ -1,44 +1,43 @@
-const { createClient } = require('@supabase/supabase-js');
+const { createClient } = require('@supabase/supabase-js')
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+)
 
 const authenticate = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers.authorization
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return res.status(401).json({
-        code: 401,
-        message: 'Token tidak ditemukan'
-      });
+        message: 'Token tidak ditemukan',
+      })
     }
 
-    const token = authHeader.split(' ')[1];
+    const token = authHeader.replace('Bearer ', '')
 
-    // Verify token dengan Supabase
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    const { data, error } = await supabase.auth.getUser(token)
 
-    if (error || !user) {
-      console.error('Auth error:', error);
+    if (error || !data || !data.user) {
       return res.status(401).json({
-        code: 401,
-        message: 'Token tidak valid atau telah kadaluarsa'
-      });
+        message: 'Token tidak valid atau kadaluarsa',
+      })
     }
 
-    // Simpan user di req untuk digunakan di controller
-    req.user = user;
-    next();
-  } catch (error) {
-    console.error('Auth middleware error:', error);
-    return res.status(500).json({
-      code: 500,
-      message: 'Autentikasi gagal'
-    });
-  }
-};
+    // simpan user untuk dipakai di controller / prisma
+    req.user = {
+      id: data.user.id,
+      email: data.user.email,
+    }
 
-module.exports = { authenticate };
+    next()
+  } catch (err) {
+    console.error('Auth middleware error:', err)
+    res.status(500).json({
+      message: 'Autentikasi gagal',
+    })
+  }
+}
+
+module.exports = { authenticate }
