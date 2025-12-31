@@ -23,7 +23,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://frontend-kamu.vercel.app"
+      "https://loan-mu-nine.vercel.app"
     ],
     credentials: true,
   })
