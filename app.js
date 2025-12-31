@@ -62,5 +62,4 @@ app.use((err, req, res, next) => {
   })
 })
 
-//  PENTING
 module.exports = app
