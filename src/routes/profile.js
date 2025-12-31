@@ -3,10 +3,9 @@ const router = express.Router();
 const controller = require('../controllers/profileControllers');
 
 router.get('/', controller.getAll);
-router.get('/:user_id', controller.getByUserId);
+router.get('/:id', controller.getById);
 router.post('/', controller.create);
-router.put('/:user_id', controller.update);
-router.delete('/:user_id', controller.remove);
+router.put('/:id', controller.update);
+router.delete('/:id', controller.remove);
 
 module.exports = router;
-
