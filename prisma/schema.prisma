@@ -7,9 +7,65 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* ======================
-   ENUMS
-====================== */
+model Role {
+  id        Int       @id @default(autoincrement())
+  nama_role String    @unique @db.VarChar(50)
+  profiles  Profile[]
+
+  @@map("roles")
+}
+
+model Profile {
+  id         String              @id @db.Uuid
+  name       String              @db.VarChar(100)
+  email      String              @unique
+  no_phone   String?             @db.VarChar(25)
+  role_id    Int
+  created_at DateTime            @default(now())
+  updated_at DateTime            @updatedAt
+  statuses   ApplicationStatus[]
+  credits    CreditApplication[]
+  role       Role                @relation(fields: [role_id], references: [id])
+
+  @@index([role_id])
+  @@map("profiles")
+}
+
+model CreditApplication {
+  id             Int                 @id @default(autoincrement())
+  kode_pengajuan String              @unique @db.VarChar(20)
+  nik            String              @db.VarChar(20)
+  nama_lengkap   String              @db.VarChar(150)
+  alamat         String
+  tanggal_lahir  DateTime            @db.Date
+  email          String              @db.VarChar(150)
+  jenis_kredit   JenisKredit
+  plafond        Decimal             @db.Decimal(15, 2)
+  jaminan        Jaminan
+  created_at     DateTime            @default(now())
+  profile_id     String              @db.Uuid
+  updated_at     DateTime            @updatedAt
+  tempat_lahir   String              @db.VarChar(100)
+  statuses       ApplicationStatus[]
+  profile        Profile             @relation(fields: [profile_id], references: [id])
+
+  @@index([kode_pengajuan])
+  @@index([nik])
+  @@map("credit_application")
+}
+
+model ApplicationStatus {
+  id             Int               @id @default(autoincrement())
+  application_id Int
+  status         StatusKredit
+  catatan        String?
+  created_at     DateTime          @default(now())
+  changed_by     String            @db.Uuid
+  application    CreditApplication @relation(fields: [application_id], references: [id])
+  profile        Profile           @relation(fields: [changed_by], references: [id])
+
+  @@map("application_status")
+}
 
 enum JenisKredit {
   KREDIT_PRODUKTIF
@@ -39,75 +95,4 @@ enum JenisKelamin {
 enum StatusAkun {
   AKTIF
   NONAKTIF
-}
-
-/* ======================
-   MODELS
-====================== */
-
-model Role {
-  id        Int      @id() @default(autoincrement())
-  nama_role String   @unique @db.VarChar(50)
-
-  profiles  Profile[]
-
-  @@map("roles")
-}
-
-model Profile {
-  id         String   @id @db.Uuid       // auth.users.id
-  name       String   @db.VarChar(100)
-  email      String   @unique
-  no_phone   String?  @db.VarChar(25)
-  role_id    Int
-
-  role       Role     @relation(fields: [role_id], references: [id])
-  credits    CreditApplication[]
-  statuses   ApplicationStatus[]
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  @@index([role_id])
-  @@map("profiles")
-}
-
-model CreditApplication {
-  id             Int         @id @default(autoincrement())
-  kode_pengajuan String      @unique @db.VarChar(20)
-  nik            String      @db.VarChar(20)
-  nama_lengkap   String      @db.VarChar(150)
-  alamat         String      @db.Text
-  tempat_lahir    String      @db.VarChar(100)
-  tanggal_lahir  DateTime    @db.Date
-  email          String      @db.VarChar(150)
-  jenis_kredit   JenisKredit
-  plafond        Decimal     @db.Decimal(15, 2)
-  jaminan        Jaminan
-
-  profile_id     String      @db.Uuid
-  profile        Profile     @relation(fields: [profile_id], references: [id])
-
-  statuses       ApplicationStatus[]
-
-  created_at     DateTime    @default(now())
-  updated_at     DateTime    @updatedAt
-
-  @@index([kode_pengajuan])
-  @@index([nik])
-  @@map("credit_application")
-}
-
-model ApplicationStatus {
-  id             Int          @id @default(autoincrement())
-  application_id Int
-  status         StatusKredit
-  changed_by     String       @db.Uuid
-  catatan        String?
-  created_at     DateTime     @default(now())
-
-  application CreditApplication @relation(fields: [application_id], references: [id])
-  profile     Profile           @relation(fields: [changed_by], references: [id])
-
-  @@map("application_status")
 }
