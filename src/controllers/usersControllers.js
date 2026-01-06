@@ -86,14 +86,14 @@ exports.create = async function (req, res) {
       let isUnique = false;
 
       while (!isUnique) {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789';
         let randomPart = '';
 
         for (let i = 0; i < 6; i++) {
           randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
         }
 
-        const randomCode = 'AG-' + randomPart;
+        const randomCode = 'AG -'+ ' ' + randomPart;
 
         const existingAgent = await prisma.profile.findUnique({
           where: { agent_code: randomCode },
