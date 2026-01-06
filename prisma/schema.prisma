@@ -20,6 +20,7 @@ model Profile {
   name       String              @db.VarChar(100)
   email      String              @unique
   no_phone   String?             @db.VarChar(25)
+  agent_code String?             @unique
   role_id    Int
   created_at DateTime            @default(now())
   updated_at DateTime            @updatedAt

@@ -1,6 +1,7 @@
-const prisma  = require('../config/prisma');
+const prisma = require('../config/prisma');
+const supabase = require('../config/supabase');
 
-// GET ALL USERS
+// get all users
 exports.getAll = async function (req, res) {
   try {
     const data = await prisma.profile.findMany({
@@ -15,7 +16,7 @@ exports.getAll = async function (req, res) {
     return res.status(200).json({
       code: 200,
       message: 'Data user berhasil ditemukan',
-      data: data,
+      data,
     });
   } catch (error) {
     return res.status(500).json({
@@ -25,10 +26,10 @@ exports.getAll = async function (req, res) {
   }
 };
 
-// GET USER BY ID
+// get user by id
 exports.getById = async function (req, res) {
   try {
-    const id = req.params.id;
+    const { id } = req.params;
 
     const data = await prisma.profile.findUnique({
       where: { id },
@@ -45,7 +46,7 @@ exports.getById = async function (req, res) {
     return res.status(200).json({
       code: 200,
       message: 'Data user berhasil ditemukan',
-      data: data,
+      data,
     });
   } catch (error) {
     return res.status(500).json({
@@ -55,24 +56,64 @@ exports.getById = async function (req, res) {
   }
 };
 
-// CREATE USER
+// create user profile (auth dibuat di frontend)
 exports.create = async function (req, res) {
   const { id, name, email, no_phone, role_id } = req.body;
 
   if (!id || !name || !email || !role_id) {
     return res.status(400).json({
       code: 400,
-      message: 'Field wajib tidak lengkap',
+      message: 'Field wajib diisi',
     });
   }
 
   try {
+    const existing = await prisma.profile.findUnique({
+      where: { id },
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        code: 409,
+        message: 'User sudah ada',
+        data: existing,
+      });
+    }
+
+    let agent_code = null;
+
+    if (role_id === 2) {
+      let isUnique = false;
+
+      while (!isUnique) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let randomPart = '';
+
+        for (let i = 0; i < 6; i++) {
+          randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+
+        const randomCode = 'AG-' + randomPart;
+
+        const existingAgent = await prisma.profile.findUnique({
+          where: { agent_code: randomCode },
+        });
+
+        if (!existingAgent) {
+          agent_code = randomCode;
+          isUnique = true;
+        }
+      }
+    }
+
+
     const data = await prisma.profile.create({
       data: {
         id,
         name,
         email,
         no_phone: no_phone || null,
+        agent_code,
         role_id,
       },
       include: {
@@ -83,16 +124,13 @@ exports.create = async function (req, res) {
     return res.status(201).json({
       code: 201,
       message: 'User berhasil ditambahkan',
-      data: data,
+      data,
     });
-
   } catch (error) {
-
-    // jika gagal simpan ke database, hapus user di supabase
     try {
       await supabase.auth.admin.deleteUser(id);
     } catch (e) {
-      console.error('gagal hapus user supabase', e.message);
+      console.error('Rollback gagal hapus user supabase:', e.message);
     }
 
     return res.status(400).json({
@@ -102,19 +140,32 @@ exports.create = async function (req, res) {
   }
 };
 
-
-// UPDATE USER BY ID
+// update user (email lewat supabase auth)
 exports.update = async function (req, res) {
   try {
-    const id = req.params.id;
+    const { id } = req.params;
+    const { name, email, no_phone, role_id } = req.body;
+
+    // validasi dulu profile ada
+    const existing = await prisma.profile.findUnique({ where: { id } });
+
+    if (!existing) {
+      return res.status(404).json({
+        code: 404,
+        message: 'User tidak ditemukan',
+      });
+    }
+
+    // lalu update auth
+    if (email !== undefined) {
+      await supabase.auth.admin.updateUserById(id, { email });
+    }
+
 
     const updateData = {};
-    if (req.body.name !== undefined) updateData.name = req.body.name;
-    if (req.body.email !== undefined) updateData.email = req.body.email;
-    if (req.body.no_phone !== undefined)
-      updateData.no_phone = req.body.no_phone;
-    if (req.body.role_id !== undefined)
-      updateData.role_id = req.body.role_id;
+    if (name !== undefined) updateData.name = name;
+    if (no_phone !== undefined) updateData.no_phone = no_phone;
+    if (email !== undefined) updateData.email = email;
 
     const data = await prisma.profile.update({
       where: { id },
@@ -125,7 +176,7 @@ exports.update = async function (req, res) {
     return res.status(200).json({
       code: 200,
       message: 'User berhasil diperbarui',
-      data: data,
+      data,
     });
   } catch (error) {
     if (error.code === 'P2025') {
@@ -142,27 +193,18 @@ exports.update = async function (req, res) {
   }
 };
 
-// DELETE USER BY ID
+// delete user (hapus dari supabase auth)
 exports.remove = async function (req, res) {
   try {
-    const id = req.params.id;
+    const { id } = req.params;
 
-    await prisma.profile.delete({
-      where: { id },
-    });
+    await supabase.auth.admin.deleteUser(id);
 
     return res.status(200).json({
       code: 200,
       message: 'User berhasil dihapus',
     });
   } catch (error) {
-    if (error.code === 'P2025') {
-      return res.status(404).json({
-        code: 404,
-        message: 'User tidak ditemukan',
-      });
-    }
-
     return res.status(400).json({
       code: 400,
       message: error.message || 'Gagal menghapus user',
