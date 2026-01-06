@@ -144,7 +144,7 @@ exports.create = async function (req, res) {
 exports.update = async function (req, res) {
   try {
     const { id } = req.params;
-    const { name, email, no_phone, role_id } = req.body;
+    const { name, email, no_phone, nasabah_code } = req.body;
 
     // validasi dulu profile ada
     const existing = await prisma.profile.findUnique({ where: { id } });
@@ -166,6 +166,7 @@ exports.update = async function (req, res) {
     if (name !== undefined) updateData.name = name;
     if (no_phone !== undefined) updateData.no_phone = no_phone;
     if (email !== undefined) updateData.email = email;
+    if (nasabah_code !== undefined) updateData.nasabah_code = nasabah_code;
 
     const data = await prisma.profile.update({
       where: { id },
