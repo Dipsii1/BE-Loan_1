@@ -16,47 +16,46 @@ model Role {
 }
 
 model Profile {
-  id         String              @id @db.Uuid
-  name       String              @db.VarChar(100)
-  email      String              @unique
-  no_phone   String?             @db.VarChar(25)
-  agent_code String?             @unique
-  nasabah_code String?           @unique
-  role_id    Int
-  created_at DateTime            @default(now())
-  updated_at DateTime            @updatedAt
-  statuses   ApplicationStatus[]
-  credits    CreditApplication[]
-  role       Role                @relation(fields: [role_id], references: [id])
+  id           String              @id @db.Uuid
+  name         String              @db.VarChar(100)
+  email        String              @unique
+  no_phone     String?             @db.VarChar(25)
+  agent_code   String?             @unique
+  nasabah_code String?             @unique
+  role_id      Int
+  created_at   DateTime            @default(now())
+  updated_at   DateTime            @updatedAt
+  statuses     ApplicationStatus[]
+  credits      CreditApplication[]
+  role         Role                @relation(fields: [role_id], references: [id])
 
   @@index([role_id])
   @@map("profiles")
 }
 
 model CreditApplication {
-  id             Int                 @id @default(autoincrement())
-  kode_pengajuan String              @unique @db.VarChar(20)
-  nik            String              @db.VarChar(20)
-  nama_lengkap   String              @db.VarChar(150)
+  id             Int         @id @default(autoincrement())
+  kode_pengajuan String      @unique @db.VarChar(20)
+  nik            String      @db.VarChar(20)
+  nama_lengkap   String      @db.VarChar(150)
   alamat         String
-  tanggal_lahir  DateTime            @db.Date
-  email          String              @db.VarChar(150)
+  tanggal_lahir  DateTime    @db.Date
+  email          String      @db.VarChar(150)
   jenis_kredit   JenisKredit
-  plafond        Decimal             @db.Decimal(15, 2)
+  plafond        Decimal     @db.Decimal(15, 2)
   jaminan        Jaminan
-  tempat_lahir   String              @db.VarChar(100)
+  tempat_lahir   String      @db.VarChar(100)
 
-  profile_id     String              @db.Uuid
-  created_at     DateTime            @default(now())
-  updated_at     DateTime            @updatedAt
+  profile_id String   @db.Uuid
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  statuses       ApplicationStatus[]
-  slas           ApplicationSLA[]  
-  profile        Profile             @relation(fields: [profile_id], references: [id])
+  statuses ApplicationStatus[]
+  slas     ApplicationSLA[]
+  profile  Profile             @relation(fields: [profile_id], references: [id])
 
   @@map("credit_application")
 }
-
 
 model ApplicationStatus {
   id             Int               @id @default(autoincrement())
@@ -72,22 +71,21 @@ model ApplicationStatus {
 }
 
 model ApplicationSLA {
-  id                Int               @id @default(autoincrement())
-  application_id    Int
-  from_status       StatusKredit
-  to_status         StatusKredit
-  start_time        DateTime
-  end_time          DateTime
+  id               Int          @id @default(autoincrement())
+  application_id   Int
+  from_status      StatusKredit
+  to_status        StatusKredit
+  start_time       DateTime
+  end_time         DateTime
   duration_minutes Int
-  catatan           String?
-  created_at        DateTime          @default(now())
+  catatan          String?
+  created_at       DateTime     @default(now())
 
-  application       CreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  application CreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
 
   @@index([application_id])
   @@map("application_sla")
 }
-
 
 enum JenisKredit {
   KREDIT_PRODUKTIF
