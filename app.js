@@ -7,8 +7,9 @@ const cors = require("cors");
 // Router
 const indexRouter = require("./src/routes/index");
 const usersRouter = require("./src/routes/users");
-const creditApplicationsRouter = require("./src/routes/creditAplications"); 
-const statusApplicationsRouter = require("./src/routes/applicationStatus");
+const authRouter = require("./src/routes/authRoutes")
+// const creditApplicationsRouter = require("./src/routes/creditAplications"); 
+// const statusApplicationsRouter = require("./src/routes/applicationStatus");
 
 const app = express();
 
@@ -49,9 +50,10 @@ app.use((req, res, next) => {
 
 // Routes
 app.use("/", indexRouter);
-app.use("/users", usersRouter);
-app.use("/credit-applications", creditApplicationsRouter);
-app.use("/application-status", statusApplicationsRouter);
+app.use("/api/v1/users", usersRouter);
+app.use("/api/v1/auth", authRouter)
+// app.use("/credit-applications", creditApplicationsRouter);
+// app.use("/application-status", statusApplicationsRouter);
 
 // 404 Handler
 app.use((req, res, next) => {

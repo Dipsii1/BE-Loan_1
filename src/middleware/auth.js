@@ -1,74 +1,70 @@
-const { PrismaClient } = require('@prisma/client');
-const { createClient } = require('@supabase/supabase-js');
+const jwt = require('jsonwebtoken');
 
-const prisma = new PrismaClient();
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const authenticate = async (req, res, next) => {
+// Middleware untuk autentikasi token
+const authenticateToken = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({
-        code: 401,
-        message: 'Token tidak ditemukan',
+        success: false,
+        message: "Token tidak ditemukan. Silakan login terlebih dahulu"
       });
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+      if (err) {
+        if (err.name === 'TokenExpiredError') {
+          return res.status(401).json({
+            success: false,
+            message: "Token sudah expired. Silakan login kembali"
+          });
+        }
+        
+        return res.status(403).json({
+          success: false,
+          message: "Token tidak valid"
+        });
+      }
 
-    // Validasi token ke Supabase
-    const { data, error } = await supabase.auth.getUser(token);
-    if (error || !data?.user) {
-      return res.status(401).json({
-        code: 401,
-        message: 'Token tidak valid atau kadaluarsa',
-      });
-    }
-
-    // Ambil profile + role dari DB
-    const user = await prisma.profile.findUnique({
-      where: { id: data.user.id },
-      include: { role: true },
+      req.user = user;
+      next();
     });
-
-    if (!user) {
-      return res.status(404).json({
-        code: 404,
-        message: 'Profile tidak ditemukan',
-      });
-    }
-
-    if (!user.role) {
-      return res.status(500).json({
-        code: 500,
-        message: 'Role user tidak ditemukan',
-      });
-    }
-
-    // Inject ke request
-    req.user = {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: {
-        id: user.role.id,
-        name: user.role.nama_role.toUpperCase(), 
-      },
-    };
-
-    next();
-  } catch (err) {
-    console.error('Auth error:', err);
+  } catch (error) {
+    console.error("Error in authenticate token:", error);
     return res.status(500).json({
-      code: 500,
-      message: 'Autentikasi gagal',
+      success: false,
+      message: "Terjadi kesalahan pada server",
+      error: error.message
     });
   }
 };
 
-module.exports = { authenticate };
+// Middleware untuk autorisasi berdasarkan role
+const authorizeRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Silakan login terlebih dahulu"
+      });
+    }
+
+    const hasRole = allowedRoles.includes(req.user.role_name);
+
+    if (!hasRole) {
+      return res.status(403).json({
+        success: false,
+        message: `Akses ditolak. Role yang diizinkan: ${allowedRoles.join(', ')}`
+      });
+    }
+
+    next();
+  };
+};
+
+module.exports = {
+  authenticateToken,
+  authorizeRole
+};
