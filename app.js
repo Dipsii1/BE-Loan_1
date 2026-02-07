@@ -64,10 +64,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Port (Host otomatis di-handle Hostinger)
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
   console.log(`✅ Server berjalan di port ${PORT}`);
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
