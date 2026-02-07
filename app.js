@@ -1,62 +1,73 @@
-var createError = require("http-errors")
-var express = require("express")
-var cookieParser = require("cookie-parser")
-var logger = require("morgan")
-var cors = require("cors")
+const createError = require("http-errors");
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const logger = require("morgan");
+const cors = require("cors");
 
-var indexRouter = require("./src/routes/index")
-var usersRouter = require("./src/routes/users")
-var creditApplicationsRouter = require("./src/routes/creditAplications")
-var statusApplicationsRouter = require("./src/routes/applicationStatus")
+// Router
+const indexRouter = require("./src/routes/index");
+const usersRouter = require("./src/routes/users");
+const creditApplicationsRouter = require("./src/routes/creditAplications"); 
+const statusApplicationsRouter = require("./src/routes/applicationStatus");
 
-var app = express()
+const app = express();
 
-app.use(logger("dev"))
-app.use(express.json())
-app.use(express.urlencoded({ extended: false }))
-app.use(cookieParser())
+// Middleware
+app.use(logger("dev"));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "https://loan-mu-nine.vercel.app"
-    ],
-    credentials: true,
-  })
-)
+// CORS
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://loan-mu-nine.vercel.app"
+];
 
-app.options("*", cors())
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true
+}));
 
+app.options("*", cors());
+
+// Disable caching
 app.use((req, res, next) => {
-  res.setHeader("Cache-Control", "no-store")
-  res.setHeader("Pragma", "no-cache")
-  res.setHeader("Expires", "0")
-  next()
-})
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 
-app.use("/", indexRouter)
-app.use("/users", usersRouter)
-app.use("/credit-applications", creditApplicationsRouter)
-app.use("/application-status", statusApplicationsRouter)
+// Routes
+app.use("/", indexRouter);
+app.use("/users", usersRouter);
+app.use("/credit-applications", creditApplicationsRouter);
+app.use("/application-status", statusApplicationsRouter);
 
+// 404 Handler
 app.use((req, res, next) => {
-  next(createError(404, "Endpoint tidak ditemukan"))
-})
+  next(createError(404, "Endpoint tidak ditemukan"));
+});
 
+// Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
     error: true,
     message: err.message,
-  })
-})
+  });
+});
 
+// Port (Host otomatis di-handle Hostinger)
+const PORT = process.env.PORT || 3000;
 
-const PORT = process.env.PORT || 3000
-const HOST = process.env.HOST || '0.0.0.0'
-
-app.listen(PORT, HOST, () => {
-  console.log(`✅ Server berjalan di ${HOST}:${PORT}`)
-  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`)
-})
-
+app.listen(PORT, () => {
+  console.log(`✅ Server berjalan di port ${PORT}`);
+  console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
