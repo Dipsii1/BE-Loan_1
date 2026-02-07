@@ -9,7 +9,7 @@ const indexRouter = require("./src/routes/index");
 const usersRouter = require("./src/routes/users");
 const authRouter = require("./src/routes/authRoutes")
 // const creditApplicationsRouter = require("./src/routes/creditAplications"); 
-// const statusApplicationsRouter = require("./src/routes/applicationStatus");
+const statusApplicationsRouter = require("./src/routes/applicationStatus");
 
 const app = express();
 
@@ -53,7 +53,7 @@ app.use("/", indexRouter);
 app.use("/api/v1/users", usersRouter);
 app.use("/api/v1/auth", authRouter)
 // app.use("/credit-applications", creditApplicationsRouter);
-// app.use("/application-status", statusApplicationsRouter);
+app.use("/api/v1/application-status", statusApplicationsRouter);
 
 // 404 Handler
 app.use((req, res, next) => {

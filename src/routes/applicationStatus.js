@@ -1,13 +1,15 @@
-// const express = require('express');
-// const router = express.Router();
-// const controller = require('../controllers/applicationStatusControllers');
-// const { authenticate } = require('../middleware/auth');
+const express = require('express');
+const router = express.Router();
+const controller = require('../controllers/applicationStatusControllers');
+const { authenticateToken, authorizeRole } = require('../middleware/auth');
 
-// // Pasang authenticate middleware di semua route ini
-// router.get('/',controller.getAll);
-// router.get('/application/:id', authenticate, controller.getByApplication);
-// router.post('/', authenticate, controller.create);
-// router.put('/:id', authenticate, controller.update);
-// router.delete('/:id', authenticate, controller.remove);
+// Get all status
+router.get('/', authenticateToken, controller.getAllStatus);
+router.get('/application/:id', authenticateToken, controller.getStatusByApplication);
+router.get('/sla/application/:id', authenticateToken, controller.getSLAByApplication);
+router.get('/sla', authenticateToken, authorizeRole('Admin'), controller.getAllSLA);
+router.post('/', authenticateToken, authorizeRole('Admin'), controller.createStatus);
+router.put('/:id', authenticateToken, authorizeRole('Admin'), controller.updateStatus);
+router.delete('/:id', authenticateToken, authorizeRole('Admin'), controller.deleteStatus);
 
-// module.exports = router;
+module.exports = router;
