@@ -100,7 +100,7 @@ const getAllStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Data status pengajuan berhasil ditemukan',
-      data,
+      data: data
     });
   } catch (error) {
     console.error('Error in get all status:', error);
@@ -157,7 +157,7 @@ const getStatusByApplication = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Data status pengajuan berhasil ditemukan',
-      data,
+      data: data
     });
   } catch (error) {
     console.error('Error in get status by application:', error);
