@@ -1,6 +1,7 @@
 const db = require('../config/db');
 
 // ================= HELPER SLA =================
+// Updated to work with existing database schema that uses status_kredit column
 const calculateSLA = async (applicationId, newStatus, conn = null) => {
   const connection = conn || db;
 
@@ -27,14 +28,14 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
 
     if (durationMinutes < 0) return null;
 
+    // ✅ FIXED: Using status_kredit column instead of from_status/to_status
     const [result] = await connection.query(
       `INSERT INTO application_sla
-       (application_id, from_status, to_status, start_time, end_time, duration_minutes, catatan)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (application_id, status_kredit, start_time, end_time, duration_minutes, catatan)
+       VALUES (?, ?, ?, ?, ?, ?)`,
       [
         applicationId,
-        lastStatus.status_kredit,
-        newStatus,
+        newStatus,  // Store only the new status
         startTime,
         endTime,
         durationMinutes,
@@ -58,9 +59,17 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
 const getAllStatus = async (req, res) => {
   try {
     const [data] = await db.query(`
-      SELECT s.*,
-             a.kode_pengajuan, a.nama_lengkap,
-             u.id AS user_id, u.name, u.email
+      SELECT s.id,
+             s.application_id,
+             s.status_kredit AS status,
+             s.catatan,
+             s.created_at,
+             s.changed_by,
+             a.kode_pengajuan, 
+             a.nama_lengkap,
+             u.id AS user_id, 
+             u.name, 
+             u.email
       FROM application_status s
       LEFT JOIN credit_application a ON s.application_id = a.id
       LEFT JOIN users u ON s.changed_by = u.id
@@ -98,7 +107,14 @@ const getStatusByApplication = async (req, res) => {
     }
 
     const [data] = await db.query(
-      `SELECT s.*, u.name, u.email
+      `SELECT s.id,
+              s.application_id,
+              s.status_kredit AS status,
+              s.catatan,
+              s.created_at,
+              s.changed_by,
+              u.name, 
+              u.email
        FROM application_status s
        LEFT JOIN users u ON s.changed_by = u.id
        WHERE s.application_id = ?
@@ -119,6 +135,13 @@ const createStatus = async (req, res) => {
   try {
     const { application_id, status, catatan } = req.body;
 
+    if (!application_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Application ID wajib diisi',
+      });
+    }
+
     if (!status) {
       return res.status(400).json({
         success: false,
@@ -134,6 +157,34 @@ const createStatus = async (req, res) => {
         success: false,
         message: 'Status invalid',
       });
+    }
+
+    // Verify application exists
+    const [appExists] = await conn.query(
+      `SELECT id FROM credit_application WHERE id = ?`,
+      [application_id]
+    );
+
+    if (!appExists.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pengajuan tidak ditemukan',
+      });
+    }
+
+    // Check authorization for non-admin users
+    if (req.user.role_name !== 'Admin') {
+      const [owned] = await conn.query(
+        `SELECT id FROM credit_application WHERE id = ? AND user_id = ?`,
+        [application_id, req.user.id]
+      );
+
+      if (!owned.length) {
+        return res.status(403).json({
+          success: false,
+          message: 'Tidak ada akses untuk mengubah status pengajuan ini',
+        });
+      }
     }
 
     await conn.beginTransaction();
@@ -187,7 +238,15 @@ const updateStatus = async (req, res) => {
       });
     }
 
+    const validStatuses = ['DIAJUKAN', 'DIPROSES', 'DITERIMA', 'DITOLAK'];
     const statusUpper = status.toUpperCase();
+
+    if (!validStatuses.includes(statusUpper)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status invalid',
+      });
+    }
 
     await conn.beginTransaction();
 
@@ -197,10 +256,28 @@ const updateStatus = async (req, res) => {
     );
 
     if (!existing.length) {
+      await conn.rollback();
       return res.status(404).json({
         success: false,
-        message: 'Status tidak ada',
+        message: 'Status tidak ditemukan',
       });
+    }
+
+    // Check authorization for non-admin users
+    if (req.user.role_name !== 'Admin') {
+      const [owned] = await conn.query(
+        `SELECT id FROM credit_application 
+         WHERE id = ? AND user_id = ?`,
+        [existing[0].application_id, req.user.id]
+      );
+
+      if (!owned.length) {
+        await conn.rollback();
+        return res.status(403).json({
+          success: false,
+          message: 'Tidak ada akses untuk mengubah status pengajuan ini',
+        });
+      }
     }
 
     let slaInfo = null;
@@ -217,13 +294,14 @@ const updateStatus = async (req, res) => {
       `UPDATE application_status
        SET status_kredit = ?, catatan = ?, changed_by = ?
        WHERE id = ?`,
-      [statusUpper, catatan, req.user.id, statusId]
+      [statusUpper, catatan || existing[0].catatan, req.user.id, statusId]
     );
 
     await conn.commit();
 
     res.json({
       success: true,
+      message: 'Status berhasil diperbarui',
       sla: slaInfo,
     });
   } catch (err) {
@@ -239,6 +317,35 @@ const deleteStatus = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
+    // Check if status exists and get application_id for authorization
+    const [existing] = await db.query(
+      `SELECT application_id FROM application_status WHERE id = ?`,
+      [id]
+    );
+
+    if (!existing.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Status tidak ditemukan',
+      });
+    }
+
+    // Check authorization for non-admin users
+    if (req.user.role_name !== 'Admin') {
+      const [owned] = await db.query(
+        `SELECT id FROM credit_application 
+         WHERE id = ? AND user_id = ?`,
+        [existing[0].application_id, req.user.id]
+      );
+
+      if (!owned.length) {
+        return res.status(403).json({
+          success: false,
+          message: 'Tidak ada akses untuk menghapus status pengajuan ini',
+        });
+      }
+    }
+
     await db.query(
       `DELETE FROM application_status WHERE id = ?`,
       [id]
@@ -246,7 +353,7 @@ const deleteStatus = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Status dihapus',
+      message: 'Status berhasil dihapus',
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -258,8 +365,45 @@ const getSLAByApplication = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
+    // Verify application exists
+    const [appExists] = await db.query(
+      `SELECT id FROM credit_application WHERE id = ?`,
+      [id]
+    );
+
+    if (!appExists.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pengajuan tidak ditemukan',
+      });
+    }
+
+    // Check authorization for non-admin users
+    if (req.user.role_name !== 'Admin') {
+      const [owned] = await db.query(
+        `SELECT id FROM credit_application WHERE id = ? AND user_id = ?`,
+        [id, req.user.id]
+      );
+
+      if (!owned.length) {
+        return res.status(403).json({
+          success: false,
+          message: 'Tidak ada akses',
+        });
+      }
+    }
+
+    // ✅ FIXED: Query adjusted for single status_kredit column
     const [slaData] = await db.query(
-      `SELECT *
+      `SELECT 
+        id,
+        application_id,
+        status_kredit,
+        start_time,
+        end_time,
+        duration_minutes,
+        catatan,
+        created_at
        FROM application_sla
        WHERE application_id = ?
        ORDER BY created_at ASC`,
@@ -296,8 +440,8 @@ const getAllSLA = async (req, res) => {
     `);
 
     res.json({ success: true, data });
-  } catch ( crescendo ) {
-    res.status(500).json({ success: false, error: crescendo.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
