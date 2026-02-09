@@ -134,7 +134,7 @@ const deleteUser = async (req, res) => {
     const { id } = req.params;
 
     const [credits] = await db.query(
-      "SELECT id FROM credit_application WHERE profile_id = ?", [id]
+      "SELECT id FROM credit_application WHERE users_id = ?", [id]
     );
 
     const [statuses] = await db.query(

@@ -7,7 +7,7 @@ const getAllApplications = async (req, res) => {
     const [data] = await db.query(`
       SELECT ca.*, p.name, p.email, r.nama_role
       FROM credit_application ca
-      LEFT JOIN users p ON ca.profile_id = p.id
+      LEFT JOIN users p ON ca.users_id = p.id
       LEFT JOIN roles r ON p.role_id = r.id
       ORDER BY ca.created_at DESC
     `);
@@ -36,7 +36,7 @@ const getApplicationsByUser = async (req, res) => {
     const [data] = await db.query(`
       SELECT *
       FROM credit_application
-      WHERE profile_id = ?
+      WHERE users_id = ?
       ORDER BY created_at DESC
     `, [req.user.id]);
 
@@ -66,7 +66,7 @@ const getApplicationById = async (req, res) => {
     const [rows] = await db.query(`
       SELECT ca.*, p.name, p.email
       FROM credit_application ca
-      LEFT JOIN users p ON ca.profile_id = p.id
+      LEFT JOIN users p ON ca.users_id = p.id
       WHERE ca.id = ?
     `, [id]);
 
@@ -79,7 +79,7 @@ const getApplicationById = async (req, res) => {
 
     const data = rows[0];
 
-    if (req.user.role_name !== "Admin" && data.profile_id !== req.user.id) {
+    if (req.user.role_name !== "Admin" && data.users_id !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Tidak punya akses"
@@ -143,7 +143,7 @@ const createApplication = async (req, res) => {
       INSERT INTO credit_application
       (kode_pengajuan, nik, nama_lengkap, alamat,
       tempat_lahir, tanggal_lahir, email,
-      jenis_kredit, plafond, jaminan, profile_id)
+      jenis_kredit, plafond, jaminan, users_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       kode_pengajuan,
@@ -201,7 +201,7 @@ const updateApplication = async (req, res) => {
       });
     }
 
-    if (existing[0].profile_id !== req.user.id) {
+    if (existing[0].users_id !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Tidak punya akses"
@@ -275,7 +275,7 @@ const deleteApplication = async (req, res) => {
       });
     }
 
-    if (existing[0].profile_id !== req.user.id) {
+    if (existing[0].users_id !== req.user.id) {
       return res.status(403).json({
         success: false,
         message: "Tidak punya akses"
