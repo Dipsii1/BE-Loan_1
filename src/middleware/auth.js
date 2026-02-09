@@ -1,62 +1,81 @@
 const jwt = require('jsonwebtoken');
 
-// Middleware untuk autentikasi token
+// ===============================
+// AUTHENTICATE TOKEN
+// ===============================
 const authenticateToken = (req, res, next) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    // 1️⃣ Validasi secret
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET belum diset');
+      return res.status(500).json({
+        success: false,
+        message: 'Konfigurasi server tidak lengkap',
+      });
+    }
+
+    // 2️⃣ Ambil token
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : null;
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Token tidak ditemukan. Silakan login terlebih dahulu"
+        message: 'Token tidak ditemukan. Silakan login terlebih dahulu',
       });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+    // 3️⃣ Verifikasi token
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
       if (err) {
         if (err.name === 'TokenExpiredError') {
           return res.status(401).json({
             success: false,
-            message: "Token sudah expired. Silakan login kembali"
+            message: 'Token sudah expired. Silakan login kembali',
           });
         }
-        
+
         return res.status(403).json({
           success: false,
-          message: "Token tidak valid"
+          message: 'Token tidak valid',
         });
       }
 
-      req.user = user;
+      // 4️⃣ Simpan payload
+      req.user = decoded;
       next();
     });
   } catch (error) {
-    console.error("Error in authenticate token:", error);
+    console.error('Authenticate error:', error);
     return res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan pada server",
-      error: error.message
+      message: 'Terjadi kesalahan pada server',
     });
   }
 };
 
-// Middleware untuk autorisasi berdasarkan role
+// ===============================
+// AUTHORIZE ROLE
+// ===============================
 const authorizeRole = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
         success: false,
-        message: "Unauthorized. Silakan login terlebih dahulu"
+        message: 'Unauthorized. Silakan login terlebih dahulu',
       });
     }
 
-    const hasRole = allowedRoles.includes(req.user.role_name);
+    // Normalisasi role biar aman
+    const userRole = String(req.user.role_name || '').toLowerCase();
+    const allowed = allowedRoles.map(r => r.toLowerCase());
 
-    if (!hasRole) {
+    if (!allowed.includes(userRole)) {
       return res.status(403).json({
         success: false,
-        message: `Akses ditolak. Role yang diizinkan: ${allowedRoles.join(', ')}`
+        message: `Akses ditolak. Role yang diizinkan: ${allowedRoles.join(', ')}`,
       });
     }
 
@@ -66,5 +85,5 @@ const authorizeRole = (...allowedRoles) => {
 
 module.exports = {
   authenticateToken,
-  authorizeRole
+  authorizeRole,
 };
