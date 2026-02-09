@@ -1,13 +1,19 @@
 const db = require("../config/db");
 
-
 // ================= GET ALL APPLICATIONS =================
 const getAllApplications = async (req, res) => {
   try {
+    if (req.user.role_name !== "Admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Tidak punya akses"
+      });
+    }
+
     const [data] = await db.query(`
       SELECT ca.*, p.name, p.email, r.nama_role
       FROM credit_application ca
-      LEFT JOIN users p ON ca.users_id = p.id
+      LEFT JOIN users p ON ca.user_id = p.id
       LEFT JOIN roles r ON p.role_id = r.id
       ORDER BY ca.created_at DESC
     `);
@@ -19,16 +25,9 @@ const getAllApplications = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
-
 
 // ================= GET APPLICATION BY USER =================
 const getApplicationsByUser = async (req, res) => {
@@ -36,27 +35,15 @@ const getApplicationsByUser = async (req, res) => {
     const [data] = await db.query(`
       SELECT *
       FROM credit_application
-      WHERE users_id = ?
+      WHERE user_id = ?
       ORDER BY created_at DESC
     `, [req.user.id]);
 
-    res.json({
-      success: true,
-      message: "Data pengajuan kredit berhasil ditemukan",
-      data
-    });
-
+    res.json({ success:true, data });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
-
 
 // ================= GET APPLICATION BY ID =================
 const getApplicationById = async (req, res) => {
@@ -66,62 +53,44 @@ const getApplicationById = async (req, res) => {
     const [rows] = await db.query(`
       SELECT ca.*, p.name, p.email
       FROM credit_application ca
-      LEFT JOIN users p ON ca.users_id = p.id
+      LEFT JOIN users p ON ca.user_id = p.id
       WHERE ca.id = ?
     `, [id]);
 
     if (!rows.length) {
       return res.status(404).json({
-        success: false,
-        message: "Pengajuan tidak ditemukan"
+        success:false,
+        message:"Pengajuan tidak ditemukan"
       });
     }
 
     const data = rows[0];
 
-    if (req.user.role_name !== "Admin" && data.users_id !== req.user.id) {
+    if (req.user.role_name !== "Admin" && data.user_id !== req.user.id) {
       return res.status(403).json({
-        success: false,
-        message: "Tidak punya akses"
+        success:false,
+        message:"Tidak punya akses"
       });
     }
 
-    res.json({
-      success: true,
-      message: "Data ditemukan",
-      data
-    });
-
+    res.json({ success:true, data });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
-
 
 // ================= CREATE APPLICATION =================
 const createApplication = async (req, res) => {
   try {
     const {
-      nik,
-      nama_lengkap,
-      alamat,
-      tempat_lahir,
-      tanggal_lahir,
-      jenis_kredit,
-      plafond,
-      jaminan
+      nik, nama_lengkap, alamat,
+      tempat_lahir, tanggal_lahir,
+      jenis_kredit, plafond, jaminan
     } = req.body;
 
     const userId = req.user.id;
     const email = req.user.email;
 
-    // Generate kode_pengajuan
     const [last] = await db.query(`
       SELECT kode_pengajuan
       FROM credit_application
@@ -138,51 +107,35 @@ const createApplication = async (req, res) => {
 
     const kode_pengajuan = `L-${String(nextNumber).padStart(4, "0")}`;
 
-    // Insert application
     const [result] = await db.query(`
       INSERT INTO credit_application
       (kode_pengajuan, nik, nama_lengkap, alamat,
-      tempat_lahir, tanggal_lahir, email,
-      jenis_kredit, plafond, jaminan, users_id)
+       tempat_lahir, tanggal_lahir, email,
+       jenis_kredit, plafond, jaminan, user_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      kode_pengajuan,
-      nik,
-      nama_lengkap,
-      alamat,
-      tempat_lahir,
-      tanggal_lahir,
-      email,
-      jenis_kredit,
-      plafond,
-      jaminan,
-      userId
+      kode_pengajuan, nik, nama_lengkap, alamat,
+      tempat_lahir, tanggal_lahir, email,
+      jenis_kredit, plafond, jaminan, userId
     ]);
 
-    // Insert initial status
+    // ✅ STATUS AWAL (FIX)
     await db.query(`
       INSERT INTO application_status
-      (application_id, status, changed_by, catatan)
+      (application_id, status_kredit, changed_by, catatan)
       VALUES (?, 'DIAJUKAN', ?, 'Pengajuan kredit dibuat')
     `, [result.insertId, userId]);
 
     res.status(201).json({
-      success: true,
-      message: "Pengajuan berhasil dibuat",
+      success:true,
+      message:"Pengajuan berhasil dibuat",
       id: result.insertId
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
-
 
 // ================= UPDATE APPLICATION =================
 const updateApplication = async (req, res) => {
@@ -196,39 +149,40 @@ const updateApplication = async (req, res) => {
 
     if (!existing.length) {
       return res.status(404).json({
-        success: false,
-        message: "Pengajuan tidak ditemukan"
+        success:false,
+        message:"Pengajuan tidak ditemukan"
       });
     }
 
-    if (existing[0].users_id !== req.user.id) {
+    if (existing[0].user_id !== req.user.id) {
       return res.status(403).json({
-        success: false,
-        message: "Tidak punya akses"
+        success:false,
+        message:"Tidak punya akses"
       });
     }
 
+    // ✅ CEK STATUS TERAKHIR (FIX)
     const [status] = await db.query(`
-      SELECT status
+      SELECT status_kredit
       FROM application_status
       WHERE application_id = ?
       ORDER BY created_at DESC
       LIMIT 1
     `, [id]);
 
-    if (status.length && status[0].status !== "DIAJUKAN") {
+    if (status.length && status[0].status_kredit !== "DIAJUKAN") {
       return res.status(400).json({
-        success: false,
-        message: "Pengajuan sudah diproses"
+        success:false,
+        message:"Pengajuan sudah diproses"
       });
     }
 
     await db.query(`
       UPDATE credit_application SET
-      nik = ?, nama_lengkap = ?, alamat = ?,
-      tempat_lahir = ?, tanggal_lahir = ?,
-      jenis_kredit = ?, plafond = ?, jaminan = ?
-      WHERE id = ?
+        nik=?, nama_lengkap=?, alamat=?,
+        tempat_lahir=?, tanggal_lahir=?,
+        jenis_kredit=?, plafond=?, jaminan=?
+      WHERE id=?
     `, [
       req.body.nik,
       req.body.nama_lengkap,
@@ -241,22 +195,12 @@ const updateApplication = async (req, res) => {
       id
     ]);
 
-    res.json({
-      success: true,
-      message: "Pengajuan berhasil diupdate"
-    });
+    res.json({ success:true, message:"Pengajuan berhasil diupdate" });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
-
 
 // ================= DELETE APPLICATION =================
 const deleteApplication = async (req, res) => {
@@ -270,38 +214,26 @@ const deleteApplication = async (req, res) => {
 
     if (!existing.length) {
       return res.status(404).json({
-        success: false,
-        message: "Pengajuan tidak ditemukan"
+        success:false,
+        message:"Pengajuan tidak ditemukan"
       });
     }
 
-    if (existing[0].users_id !== req.user.id) {
+    if (existing[0].user_id !== req.user.id) {
       return res.status(403).json({
-        success: false,
-        message: "Tidak punya akses"
+        success:false,
+        message:"Tidak punya akses"
       });
     }
 
-    await db.query(
-      "DELETE FROM credit_application WHERE id = ?",
-      [id]
-    );
+    await db.query("DELETE FROM credit_application WHERE id = ?", [id]);
 
-    res.json({
-      success: true,
-      message: "Pengajuan berhasil dihapus"
-    });
+    res.json({ success:true, message:"Pengajuan berhasil dihapus" });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-      error: error.message
-    });
+    res.status(500).json({ success:false, error:error.message });
   }
 };
-
 
 module.exports = {
   getAllApplications,

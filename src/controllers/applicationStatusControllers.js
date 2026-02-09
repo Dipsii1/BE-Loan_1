@@ -5,20 +5,21 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
   const connection = conn || db;
 
   try {
-    // Ambil status terakhir
     const [rows] = await connection.query(
-      `SELECT status, created_at 
-       FROM application_status 
+      `SELECT status_kredit, created_at
+       FROM application_status
        WHERE application_id = ?
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY created_at DESC
+       LIMIT 1`,
       [applicationId]
     );
 
+    // Status pertama → belum ada SLA
     if (rows.length === 0) return null;
 
     const lastStatus = rows[0];
 
-    if (lastStatus.status === newStatus) return null;
+    if (lastStatus.status_kredit === newStatus) return null;
 
     const startTime = new Date(lastStatus.created_at);
     const endTime = new Date();
@@ -28,21 +29,21 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
 
     const [result] = await connection.query(
       `INSERT INTO application_sla
-      (application_id, from_status, to_status, start_time, end_time, duration_minutes, catatan)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (application_id, from_status, to_status, start_time, end_time, duration_minutes, catatan)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         applicationId,
-        lastStatus.status,
+        lastStatus.status_kredit,
         newStatus,
         startTime,
         endTime,
         durationMinutes,
-        `Transisi dari ${lastStatus.status} ke ${newStatus}`,
+        `Transisi dari ${lastStatus.status_kredit} ke ${newStatus}`,
       ]
     );
 
     return {
-      from: lastStatus.status,
+      from: lastStatus.status_kredit,
       to: newStatus,
       duration: durationMinutes,
       sla_id: result.insertId,
@@ -53,15 +54,13 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
   }
 };
 
-
-
 // ================= GET ALL STATUS =================
 const getAllStatus = async (req, res) => {
   try {
     const [data] = await db.query(`
-      SELECT s.*, 
+      SELECT s.*,
              a.kode_pengajuan, a.nama_lengkap,
-             u.id as user_id, u.name, u.email
+             u.id AS user_id, u.name, u.email
       FROM application_status s
       LEFT JOIN credit_application a ON s.application_id = a.id
       LEFT JOIN users u ON s.changed_by = u.id
@@ -78,8 +77,6 @@ const getAllStatus = async (req, res) => {
   }
 };
 
-
-
 // ================= GET STATUS BY APPLICATION =================
 const getStatusByApplication = async (req, res) => {
   try {
@@ -92,7 +89,7 @@ const getStatusByApplication = async (req, res) => {
         [applicationId, req.user.id]
       );
 
-      if (owned.length === 0) {
+      if (!owned.length) {
         return res.status(403).json({
           success: false,
           message: 'Tidak ada akses',
@@ -115,8 +112,6 @@ const getStatusByApplication = async (req, res) => {
   }
 };
 
-
-
 // ================= CREATE STATUS =================
 const createStatus = async (req, res) => {
   const conn = await db.getConnection();
@@ -124,27 +119,39 @@ const createStatus = async (req, res) => {
   try {
     const { application_id, status, catatan } = req.body;
 
-    const validStatuses = ['DIAJUKAN','DIPROSES','DITERIMA','DITOLAK'];
-    if (!validStatuses.includes(status.toUpperCase())) {
-      return res.status(400).json({ success:false, message:'Status invalid' });
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status wajib diisi',
+      });
+    }
+
+    const validStatuses = ['DIAJUKAN', 'DIPROSES', 'DITERIMA', 'DITOLAK'];
+    const statusUpper = status.toUpperCase();
+
+    if (!validStatuses.includes(statusUpper)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status invalid',
+      });
     }
 
     await conn.beginTransaction();
 
     const slaInfo = await calculateSLA(
       application_id,
-      status.toUpperCase(),
+      statusUpper,
       conn
     );
 
     const [result] = await conn.query(
       `INSERT INTO application_status
-      (application_id, status, catatan, changed_by)
-      VALUES (?, ?, ?, ?)`,
+       (application_id, status_kredit, catatan, changed_by)
+       VALUES (?, ?, ?, ?)`,
       [
         application_id,
-        status.toUpperCase(),
-        catatan || `Status diubah menjadi ${status}`,
+        statusUpper,
+        catatan || `Status diubah menjadi ${statusUpper}`,
         req.user.id,
       ]
     );
@@ -157,16 +164,13 @@ const createStatus = async (req, res) => {
       insertId: result.insertId,
       sla: slaInfo,
     });
-
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ success:false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   } finally {
     conn.release();
   }
 };
-
-
 
 // ================= UPDATE STATUS =================
 const updateStatus = async (req, res) => {
@@ -176,6 +180,15 @@ const updateStatus = async (req, res) => {
     const { status, catatan } = req.body;
     const statusId = Number(req.params.id);
 
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status wajib diisi',
+      });
+    }
+
+    const statusUpper = status.toUpperCase();
+
     await conn.beginTransaction();
 
     const [existing] = await conn.query(
@@ -183,54 +196,62 @@ const updateStatus = async (req, res) => {
       [statusId]
     );
 
-    if (!existing.length)
-      return res.status(404).json({ success:false, message:'Status tidak ada' });
+    if (!existing.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Status tidak ada',
+      });
+    }
 
     let slaInfo = null;
 
-    if (existing[0].status !== status.toUpperCase()) {
+    if (existing[0].status_kredit !== statusUpper) {
       slaInfo = await calculateSLA(
         existing[0].application_id,
-        status.toUpperCase(),
+        statusUpper,
         conn
       );
     }
 
     await conn.query(
       `UPDATE application_status
-       SET status=?, catatan=?, changed_by=?
-       WHERE id=?`,
-      [status.toUpperCase(), catatan, req.user.id, statusId]
+       SET status_kredit = ?, catatan = ?, changed_by = ?
+       WHERE id = ?`,
+      [statusUpper, catatan, req.user.id, statusId]
     );
 
     await conn.commit();
 
-    res.json({ success:true, sla:slaInfo });
-
+    res.json({
+      success: true,
+      sla: slaInfo,
+    });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ success:false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   } finally {
     conn.release();
   }
 };
-
-
 
 // ================= DELETE STATUS =================
 const deleteStatus = async (req, res) => {
   try {
     const id = Number(req.params.id);
 
-    await db.query(`DELETE FROM application_status WHERE id=?`, [id]);
+    await db.query(
+      `DELETE FROM application_status WHERE id = ?`,
+      [id]
+    );
 
-    res.json({ success:true, message:'Status dihapus' });
+    res.json({
+      success: true,
+      message: 'Status dihapus',
+    });
   } catch (err) {
-    res.status(500).json({ success:false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 // ================= GET SLA PER APPLICATION =================
 const getSLAByApplication = async (req, res) => {
@@ -238,30 +259,31 @@ const getSLAByApplication = async (req, res) => {
     const id = Number(req.params.id);
 
     const [slaData] = await db.query(
-      `SELECT * FROM application_sla
-       WHERE application_id=?
+      `SELECT *
+       FROM application_sla
+       WHERE application_id = ?
        ORDER BY created_at ASC`,
       [id]
     );
 
-    const total = slaData.reduce((sum,x)=>sum+x.duration_minutes,0);
+    const total = slaData.reduce(
+      (sum, x) => sum + x.duration_minutes,
+      0
+    );
 
     res.json({
-      success:true,
-      data:{
-        transitions:slaData,
+      success: true,
+      data: {
+        transitions: slaData,
         total_duration_minutes: total,
-        total_duration_hours:(total/60).toFixed(2),
-        total_duration_days:(total/1440).toFixed(2)
-      }
+        total_duration_hours: (total / 60).toFixed(2),
+        total_duration_days: (total / 1440).toFixed(2),
+      },
     });
-
   } catch (err) {
-    res.status(500).json({ success:false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 // ================= GET ALL SLA =================
 const getAllSLA = async (req, res) => {
@@ -269,16 +291,15 @@ const getAllSLA = async (req, res) => {
     const [data] = await db.query(`
       SELECT s.*, a.kode_pengajuan, a.nama_lengkap
       FROM application_sla s
-      LEFT JOIN credit_application a ON s.application_id=a.id
+      LEFT JOIN credit_application a ON s.application_id = a.id
       ORDER BY s.created_at DESC
     `);
 
-    res.json({ success:true, data });
-  } catch (err) {
-    res.status(500).json({ success:false, error: err.message });
+    res.json({ success: true, data });
+  } catch ( crescendo ) {
+    res.status(500).json({ success: false, error: crescendo.message });
   }
 };
-
 
 module.exports = {
   getAllStatus,
@@ -287,5 +308,5 @@ module.exports = {
   updateStatus,
   deleteStatus,
   getSLAByApplication,
-  getAllSLA
+  getAllSLA,
 };
