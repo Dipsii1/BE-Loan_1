@@ -7,7 +7,7 @@ const getAllApplications = async (req, res) => {
     const [data] = await db.query(`
       SELECT ca.*, p.name, p.email, r.nama_role
       FROM credit_application ca
-      LEFT JOIN profiles p ON ca.profile_id = p.id
+      LEFT JOIN users p ON ca.profile_id = p.id
       LEFT JOIN roles r ON p.role_id = r.id
       ORDER BY ca.created_at DESC
     `);
@@ -66,7 +66,7 @@ const getApplicationById = async (req, res) => {
     const [rows] = await db.query(`
       SELECT ca.*, p.name, p.email
       FROM credit_application ca
-      LEFT JOIN profiles p ON ca.profile_id = p.id
+      LEFT JOIN users p ON ca.profile_id = p.id
       WHERE ca.id = ?
     `, [id]);
 

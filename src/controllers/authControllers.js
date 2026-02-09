@@ -17,7 +17,7 @@ const registerUser = async (req, res) => {
 
     // Cek email
     const [existingUser] = await db.query(
-      "SELECT id FROM profiles WHERE email = ?",
+      "SELECT id FROM users WHERE email = ?",
       [email]
     );
 
@@ -58,7 +58,7 @@ const registerUser = async (req, res) => {
         const code = `AG-${randomPart}`;
 
         const [check] = await db.query(
-          "SELECT id FROM profiles WHERE agent_code = ?",
+          "SELECT id FROM users WHERE agent_code = ?",
           [code]
         );
 
@@ -76,7 +76,7 @@ const registerUser = async (req, res) => {
     const id = crypto.randomUUID();
 
     await db.query(`
-      INSERT INTO profiles
+      INSERT INTO users
       (id, name, email, no_phone, agent_code, role_id, password)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `, [
@@ -91,7 +91,7 @@ const registerUser = async (req, res) => {
 
     const [user] = await db.query(`
       SELECT p.*, r.nama_role
-      FROM profiles p
+      FROM users p
       JOIN roles r ON p.role_id = r.id
       WHERE p.id = ?
     `, [id]);
@@ -130,7 +130,7 @@ const loginUser = async (req, res) => {
 
     const [rows] = await db.query(`
       SELECT p.*, r.nama_role
-      FROM profiles p
+      FROM users p
       JOIN roles r ON p.role_id = r.id
       WHERE p.email = ?
     `, [email]);
@@ -201,7 +201,7 @@ const getCurrentUser = async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT p.*, r.nama_role
-      FROM profiles p
+      FROM users p
       JOIN roles r ON p.role_id = r.id
       WHERE p.id = ?
     `, [req.user.id]);
