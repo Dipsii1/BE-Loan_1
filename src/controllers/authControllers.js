@@ -1,67 +1,70 @@
-const prisma = require('../config/prisma');
+const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
-// Create new user (Register)
+
+// ================= REGISTER USER =================
 const registerUser = async (req, res) => {
   try {
     const { name, email, no_phone, role_id, password } = req.body;
 
-    // Validasi input
     if (!name || !email || !role_id || !password) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, role_id, dan password wajib diisi"
+        message: "Name, email, role_id, password wajib diisi"
       });
     }
 
-    // Cek apakah email sudah terdaftar
-    const existingUser = await prisma.user.findUnique({
-      where: { email }
-    });
+    // Cek email
+    const [existingUser] = await db.query(
+      "SELECT id FROM profiles WHERE email = ?",
+      [email]
+    );
 
-    if (existingUser) {
+    if (existingUser.length) {
       return res.status(409).json({
         success: false,
         message: "Email sudah terdaftar"
       });
     }
 
-    // Cek apakah role_id valid
-    const roleExists = await prisma.role.findUnique({
-      where: { id: role_id }
-    });
+    // Cek role
+    const [role] = await db.query(
+      "SELECT id FROM roles WHERE id = ?",
+      [role_id]
+    );
 
-    if (!roleExists) {
+    if (!role.length) {
       return res.status(404).json({
         success: false,
         message: "Role tidak ditemukan"
       });
     }
 
+    // Generate agent code
     let agent_code = null;
 
-    // Generate agent code jika role_id = 2 (Agent)
     if (role_id === 2) {
-      let isUnique = false;
+      let unique = false;
 
-      while (!isUnique) {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ123456789';
-        let randomPart = '';
+      while (!unique) {
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ123456789";
+        let randomPart = "";
 
         for (let i = 0; i < 6; i++) {
-          randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+          randomPart += chars[Math.floor(Math.random() * chars.length)];
         }
 
-        const randomCode = `AG-${randomPart}`;
+        const code = `AG-${randomPart}`;
 
-        const existingAgent = await prisma.user.findUnique({
-          where: { agent_code: randomCode }
-        });
+        const [check] = await db.query(
+          "SELECT id FROM profiles WHERE agent_code = ?",
+          [code]
+        );
 
-        if (!existingAgent) {
-          agent_code = randomCode;
-          isUnique = true;
+        if (!check.length) {
+          agent_code = code;
+          unique = true;
         }
       }
     }
@@ -69,54 +72,55 @@ const registerUser = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
-    const newUser = await prisma.user.create({
-      data: {
-        name,
-        email,
-        no_phone: no_phone || null,
-        agent_code,
-        role_id,
-        password: hashedPassword
-      },
-      include: {
-        role: true
-      }
-    });
+    // UUID manual (simple)
+    const id = crypto.randomUUID();
 
-    // Remove password dari response
-    const { password: _, ...userWithoutPassword } = newUser;
+    await db.query(`
+      INSERT INTO profiles
+      (id, name, email, no_phone, agent_code, role_id, password)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id,
+      name,
+      email,
+      no_phone || null,
+      agent_code,
+      role_id,
+      hashedPassword
+    ]);
 
-    return res.status(201).json({
+    const [user] = await db.query(`
+      SELECT p.*, r.nama_role
+      FROM profiles p
+      JOIN roles r ON p.role_id = r.id
+      WHERE p.id = ?
+    `, [id]);
+
+    delete user[0].password;
+
+    res.status(201).json({
       success: true,
-      message: "Berhasil membuat user baru",
-      data: userWithoutPassword
+      message: "Register berhasil",
+      data: user[0]
     });
-  } catch (error) {
-    console.error("Error in create user:", error);
-    
-    // Handle unique constraint violation
-    if (error.code === 'P2002') {
-      return res.status(409).json({
-        success: false,
-        message: `${error.meta.target[0]} sudah digunakan`
-      });
-    }
 
-    return res.status(500).json({
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan pada server",
+      message: "Server error",
       error: error.message
     });
   }
 };
 
-// Login user
+
+
+// ================= LOGIN USER =================
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validasi input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -124,118 +128,109 @@ const loginUser = async (req, res) => {
       });
     }
 
-    // Cari user berdasarkan email
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: {
-        role: true
-      }
-    });
+    const [rows] = await db.query(`
+      SELECT p.*, r.nama_role
+      FROM profiles p
+      JOIN roles r ON p.role_id = r.id
+      WHERE p.email = ?
+    `, [email]);
 
-    // Cek apakah user ada
-    if (!user) {
+    if (!rows.length) {
       return res.status(401).json({
         success: false,
         message: "Email atau password salah"
       });
     }
 
-    // Verifikasi password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const user = rows[0];
 
-    if (!isPasswordValid) {
+    const valid = await bcrypt.compare(password, user.password);
+
+    if (!valid) {
       return res.status(401).json({
         success: false,
         message: "Email atau password salah"
       });
     }
-
-    // Generate JWT token
     const token = jwt.sign(
       {
         id: user.id,
         email: user.email,
         role_id: user.role_id,
-        role_name: user.role.nama_role
+        role_name: user.nama_role
       },
-      process.env.JWT_SECRET || 'your-secret-key',
-      {
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-      }
+      process.env.JWT_SECRET || "secretkey",
+      { expiresIn: "24h" }
     );
 
-    // Remove password dari response
-    const { password: _, ...userWithoutPassword } = user;
+    delete user.password;
 
-    return res.status(200).json({
+    res.json({
       success: true,
       message: "Login berhasil",
       data: {
-        user: userWithoutPassword,
+        user,
         token
       }
     });
+
   } catch (error) {
-    console.error("Error in login user:", error);
-    return res.status(500).json({
+    console.error(error);
+    res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan pada server",
+      message: "Server error",
       error: error.message
     });
   }
 };
 
-// Logout user
+
+
+// ================= LOGOUT =================
 const logoutUser = async (req, res) => {
-  try {
-    return res.status(200).json({
-      success: true,
-      message: "Logout berhasil"
-    });
-  } catch (error) {
-    console.error("Error in logout user:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan pada server",
-      error: error.message
-    });
-  }
+  res.json({
+    success: true,
+    message: "Logout berhasil"
+  });
 };
 
-// Get current user (dari token)
+
+
+// ================= GET CURRENT USER =================
 const getCurrentUser = async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: {
-        role: true
-      }
-    });
+    const [rows] = await db.query(`
+      SELECT p.*, r.nama_role
+      FROM profiles p
+      JOIN roles r ON p.role_id = r.id
+      WHERE p.id = ?
+    `, [req.user.id]);
 
-    if (!user) {
+    if (!rows.length) {
       return res.status(404).json({
         success: false,
         message: "User tidak ditemukan"
       });
     }
 
-    // Remove password dari response
-    const { password: _, ...userWithoutPassword } = user;
+    delete rows[0].password;
 
-    return res.status(200).json({
+    res.json({
       success: true,
-      message: "Berhasil mendapatkan data user",
-      data: userWithoutPassword
+      message: "Berhasil ambil user",
+      data: rows[0]
     });
+
   } catch (error) {
-    console.error("Error in get current user:", error);
-    return res.status(500).json({
+    console.error(error);
+    res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan pada server",
+      message: "Server error",
       error: error.message
     });
   }
 };
+
 
 module.exports = {
   registerUser,

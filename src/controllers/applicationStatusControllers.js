@@ -1,448 +1,284 @@
-const prisma = require('../config/prisma');
+const db = require('../config/db');
 
-// Helper function untuk menghitung durasi SLA
-const calculateSLA = async (applicationId, newStatus, prismaClient = null) => {
+// ================= HELPER SLA =================
+const calculateSLA = async (applicationId, newStatus, conn = null) => {
+  const connection = conn || db;
+
   try {
-    const client = prismaClient || prisma;
+    // Ambil status terakhir
+    const [rows] = await connection.query(
+      `SELECT status, created_at 
+       FROM application_status 
+       WHERE application_id = ?
+       ORDER BY created_at DESC LIMIT 1`,
+      [applicationId]
+    );
 
-    // Ambil status terakhir sebelum perubahan
-    const lastStatus = await client.applicationStatus.findFirst({
-      where: { application_id: applicationId },
-      orderBy: { created_at: 'desc' },
-    });
+    if (rows.length === 0) return null;
 
-    if (!lastStatus) {
-      // status pertama (DIAJUKAN)
-      console.log('Status pertama, tidak perlu tracking SLA');
-      return null;
-    }
+    const lastStatus = rows[0];
 
-    // Cek apakah status benar-benar berubah
-    if (lastStatus.status === newStatus) {
-      console.log('Status tidak berubah, skip SLA tracking');
-      return null;
-    }
+    if (lastStatus.status === newStatus) return null;
 
-    // Hitung durasi dari status sebelumnya ke status baru
     const startTime = new Date(lastStatus.created_at);
     const endTime = new Date();
-    const durationMs = endTime - startTime;
-    const durationMinutes = Math.floor(durationMs / (1000 * 60));
+    const durationMinutes = Math.floor((endTime - startTime) / 60000);
 
-    // Validasi durasi tidak negatif
-    if (durationMinutes < 0) {
-      console.error('ERROR: Duration negatif!', {
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString()
-      });
-      return null;
-    }
+    if (durationMinutes < 0) return null;
 
-    // Simpan ke tabel ApplicationSLA
-    const slaRecord = await client.applicationSLA.create({
-      data: {
-        application_id: applicationId,
-        from_status: lastStatus.status,
-        to_status: newStatus,
-        start_time: startTime,
-        end_time: endTime,
-        duration_minutes: durationMinutes,
-        catatan: `Transisi dari ${lastStatus.status} ke ${newStatus}`,
-      },
-    });
-
-    console.log('SLA tracked successfully:', {
-      application_id: applicationId,
-      from: lastStatus.status,
-      to: newStatus,
-      duration: durationMinutes,
-    });
+    const [result] = await connection.query(
+      `INSERT INTO application_sla
+      (application_id, from_status, to_status, start_time, end_time, duration_minutes, catatan)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        applicationId,
+        lastStatus.status,
+        newStatus,
+        startTime,
+        endTime,
+        durationMinutes,
+        `Transisi dari ${lastStatus.status} ke ${newStatus}`,
+      ]
+    );
 
     return {
       from: lastStatus.status,
       to: newStatus,
       duration: durationMinutes,
-      sla_id: slaRecord.id,
+      sla_id: result.insertId,
     };
-  } catch (error) {
-    console.error('ERROR CALCULATE SLA:', {
-      applicationId,
-      newStatus,
-      error: error.message,
-      stack: error.stack,
-    });
-    throw error;
+  } catch (err) {
+    console.error('ERROR SLA:', err);
+    throw err;
   }
 };
 
-// Get all application status
+
+
+// ================= GET ALL STATUS =================
 const getAllStatus = async (req, res) => {
   try {
-    const data = await prisma.applicationStatus.findMany({
-      include: {
-        application: {
-          select: {
-            kode_pengajuan: true,
-            nama_lengkap: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const [data] = await db.query(`
+      SELECT s.*, 
+             a.kode_pengajuan, a.nama_lengkap,
+             u.id as user_id, u.name, u.email
+      FROM application_status s
+      LEFT JOIN credit_application a ON s.application_id = a.id
+      LEFT JOIN users u ON s.changed_by = u.id
+      ORDER BY s.created_at DESC
+    `);
 
-    return res.status(200).json({
+    res.json({
       success: true,
       message: 'Data status pengajuan berhasil ditemukan',
-      data: data
+      data,
     });
-  } catch (error) {
-    console.error('Error in get all status:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// Get status by application ID
+
+
+// ================= GET STATUS BY APPLICATION =================
 const getStatusByApplication = async (req, res) => {
   try {
     const applicationId = Number(req.params.id);
 
-    // Jika bukan ADMIN, cek kepemilikan
     if (req.user.role_name !== 'Admin') {
-      const owned = await prisma.creditApplication.findFirst({
-        where: {
-          id: applicationId,
-          user_id: req.user.id,
-        },
-      });
+      const [owned] = await db.query(
+        `SELECT id FROM credit_application
+         WHERE id = ? AND user_id = ?`,
+        [applicationId, req.user.id]
+      );
 
-      if (!owned) {
+      if (owned.length === 0) {
         return res.status(403).json({
           success: false,
-          message: 'Anda tidak memiliki akses ke pengajuan ini',
+          message: 'Tidak ada akses',
         });
       }
     }
 
-    const data = await prisma.applicationStatus.findMany({
-      where: { application_id: applicationId },
-      include: {
-        user: {
-          select: { 
-            name: true, 
-            email: true 
-          },
-        },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const [data] = await db.query(
+      `SELECT s.*, u.name, u.email
+       FROM application_status s
+       LEFT JOIN users u ON s.changed_by = u.id
+       WHERE s.application_id = ?
+       ORDER BY s.created_at DESC`,
+      [applicationId]
+    );
 
-    if (data.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Status pengajuan tidak ditemukan',
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Data status pengajuan berhasil ditemukan',
-      data: data
-    });
-  } catch (error) {
-    console.error('Error in get status by application:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 };
 
-// Create new status (ADMIN) - Dengan SLA Tracking
+
+
+// ================= CREATE STATUS =================
 const createStatus = async (req, res) => {
+  const conn = await db.getConnection();
+
   try {
     const { application_id, status, catatan } = req.body;
 
-    // Validasi input
-    if (!application_id || !status) {
-      return res.status(400).json({
-        success: false,
-        message: 'application_id dan status wajib diisi',
-      });
-    }
-
-    // Validasi status enum
-    const validStatuses = ['DIAJUKAN', 'DIPROSES', 'DITERIMA', 'DITOLAK'];
+    const validStatuses = ['DIAJUKAN','DIPROSES','DITERIMA','DITOLAK'];
     if (!validStatuses.includes(status.toUpperCase())) {
-      return res.status(400).json({
-        success: false,
-        message: `Status harus salah satu dari: ${validStatuses.join(', ')}`,
-      });
+      return res.status(400).json({ success:false, message:'Status invalid' });
     }
 
-    // Cek application exists
-    const application = await prisma.creditApplication.findUnique({
-      where: { id: Number(application_id) },
-    });
+    await conn.beginTransaction();
 
-    if (!application) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pengajuan tidak ditemukan',
-      });
-    }
+    const slaInfo = await calculateSLA(
+      application_id,
+      status.toUpperCase(),
+      conn
+    );
 
-    // Cek user exists
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User tidak ditemukan',
-      });
-    }
-
-    // Transaction untuk create status dan hitung SLA
-    const result = await prisma.$transaction(async (tx) => {
-      // Hitung SLA SEBELUM membuat status baru
-      const slaInfo = await calculateSLA(
-        Number(application_id),
+    const [result] = await conn.query(
+      `INSERT INTO application_status
+      (application_id, status, catatan, changed_by)
+      VALUES (?, ?, ?, ?)`,
+      [
+        application_id,
         status.toUpperCase(),
-        tx
-      );
+        catatan || `Status diubah menjadi ${status}`,
+        req.user.id,
+      ]
+    );
 
-      // Buat status baru
-      const newStatus = await tx.applicationStatus.create({
-        data: {
-          application_id: Number(application_id),
-          status: status.toUpperCase(),
-          catatan: catatan || `Status diubah menjadi ${status}`,
-          changed_by: req.user.id,
-        },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-        },
-      });
+    await conn.commit();
 
-      return { newStatus, slaInfo };
-    });
-
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
-      message: 'Status pengajuan berhasil ditambahkan',
-      data: result.newStatus,
-      sla: result.slaInfo,
+      message: 'Status berhasil ditambahkan',
+      insertId: result.insertId,
+      sla: slaInfo,
     });
-  } catch (error) {
-    console.error('Error in create status:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success:false, error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
-// Update status
+
+
+// ================= UPDATE STATUS =================
 const updateStatus = async (req, res) => {
+  const conn = await db.getConnection();
+
   try {
     const { status, catatan } = req.body;
     const statusId = Number(req.params.id);
 
-    // Validasi input
-    if (!status || !catatan) {
-      return res.status(400).json({
-        success: false,
-        message: 'Status dan catatan wajib diisi',
-      });
+    await conn.beginTransaction();
+
+    const [existing] = await conn.query(
+      `SELECT * FROM application_status WHERE id = ?`,
+      [statusId]
+    );
+
+    if (!existing.length)
+      return res.status(404).json({ success:false, message:'Status tidak ada' });
+
+    let slaInfo = null;
+
+    if (existing[0].status !== status.toUpperCase()) {
+      slaInfo = await calculateSLA(
+        existing[0].application_id,
+        status.toUpperCase(),
+        conn
+      );
     }
 
-    // Validasi status enum
-    const validStatuses = ['DIAJUKAN', 'DIPROSES', 'DITERIMA', 'DITOLAK'];
-    if (!validStatuses.includes(status.toUpperCase())) {
-      return res.status(400).json({
-        success: false,
-        message: `Status harus salah satu dari: ${validStatuses.join(', ')}`,
-      });
-    }
+    await conn.query(
+      `UPDATE application_status
+       SET status=?, catatan=?, changed_by=?
+       WHERE id=?`,
+      [status.toUpperCase(), catatan, req.user.id, statusId]
+    );
 
-    // Mengambil status yang akan diupdate
-    const existingStatus = await prisma.applicationStatus.findUnique({
-      where: { id: statusId },
-    });
+    await conn.commit();
 
-    if (!existingStatus) {
-      return res.status(404).json({
-        success: false,
-        message: 'Status tidak ditemukan',
-      });
-    }
+    res.json({ success:true, sla:slaInfo });
 
-    // Transaction untuk update status dan hitung SLA
-    const result = await prisma.$transaction(async (tx) => {
-      let slaInfo = null;
-
-      // Hitung SLA HANYA jika status berubah
-      if (existingStatus.status !== status.toUpperCase()) {
-        slaInfo = await calculateSLA(
-          existingStatus.application_id,
-          status.toUpperCase(),
-          tx
-        );
-      }
-
-      // Update status
-      const updatedStatus = await tx.applicationStatus.update({
-        where: { id: statusId },
-        data: {
-          status: status.toUpperCase(),
-          catatan,
-          changed_by: req.user.id,
-        },
-        include: {
-          user: {
-            select: {
-              name: true,
-              email: true,
-            },
-          },
-        },
-      });
-
-      return { updatedStatus, slaInfo };
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Status pengajuan berhasil diperbarui',
-      data: result.updatedStatus,
-      sla: result.slaInfo,
-    });
-  } catch (error) {
-    console.error('Error in update status:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success:false, error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
-// Delete status
+
+
+// ================= DELETE STATUS =================
 const deleteStatus = async (req, res) => {
   try {
-    const statusId = Number(req.params.id);
+    const id = Number(req.params.id);
 
-    // Cek apakah status ada
-    const existingStatus = await prisma.applicationStatus.findUnique({
-      where: { id: statusId },
-    });
+    await db.query(`DELETE FROM application_status WHERE id=?`, [id]);
 
-    if (!existingStatus) {
-      return res.status(404).json({
-        success: false,
-        message: 'Status tidak ditemukan',
-      });
-    }
-
-    await prisma.applicationStatus.delete({
-      where: { id: statusId },
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Status pengajuan berhasil dihapus',
-    });
-  } catch (error) {
-    console.error('Error in delete status:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+    res.json({ success:true, message:'Status dihapus' });
+  } catch (err) {
+    res.status(500).json({ success:false, error: err.message });
   }
 };
 
-// Get SLA by application ID
+
+
+// ================= GET SLA PER APPLICATION =================
 const getSLAByApplication = async (req, res) => {
   try {
-    const applicationId = Number(req.params.id);
+    const id = Number(req.params.id);
 
-    const slaData = await prisma.applicationSLA.findMany({
-      where: { application_id: applicationId },
-      orderBy: { created_at: 'asc' },
+    const [slaData] = await db.query(
+      `SELECT * FROM application_sla
+       WHERE application_id=?
+       ORDER BY created_at ASC`,
+      [id]
+    );
+
+    const total = slaData.reduce((sum,x)=>sum+x.duration_minutes,0);
+
+    res.json({
+      success:true,
+      data:{
+        transitions:slaData,
+        total_duration_minutes: total,
+        total_duration_hours:(total/60).toFixed(2),
+        total_duration_days:(total/1440).toFixed(2)
+      }
     });
 
-    // Hitung total durasi
-    const totalDuration = slaData.reduce((sum, sla) => sum + sla.duration_minutes, 0);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Data SLA berhasil ditemukan',
-      data: {
-        transitions: slaData,
-        total_duration_minutes: totalDuration,
-        total_duration_hours: (totalDuration / 60).toFixed(2),
-        total_duration_days: (totalDuration / (60 * 24)).toFixed(2),
-      },
-    });
-  } catch (error) {
-    console.error('Error in get SLA by application:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success:false, error: err.message });
   }
 };
 
-// Get all SLA - untuk monitoring
+
+
+// ================= GET ALL SLA =================
 const getAllSLA = async (req, res) => {
   try {
-    const slaData = await prisma.applicationSLA.findMany({
-      include: {
-        application: {
-          select: {
-            kode_pengajuan: true,
-            nama_lengkap: true,
-          },
-        },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+    const [data] = await db.query(`
+      SELECT s.*, a.kode_pengajuan, a.nama_lengkap
+      FROM application_sla s
+      LEFT JOIN credit_application a ON s.application_id=a.id
+      ORDER BY s.created_at DESC
+    `);
 
-    return res.status(200).json({
-      success: true,
-      message: 'Data SLA berhasil ditemukan',
-      data: slaData,
-    });
-  } catch (error) {
-    console.error('Error in get all SLA:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Terjadi kesalahan pada server',
-      error: error.message
-    });
+    res.json({ success:true, data });
+  } catch (err) {
+    res.status(500).json({ success:false, error: err.message });
   }
 };
+
 
 module.exports = {
   getAllStatus,
