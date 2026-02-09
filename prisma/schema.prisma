@@ -15,7 +15,7 @@ model Role {
   @@map("roles")
 }
 
-model Profile {
+model User {
   id           String              @id @db.Char(36)
   name         String              @db.VarChar(100)
   email        String              @unique
