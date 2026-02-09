@@ -8,84 +8,92 @@ datasource db {
 }
 
 model Role {
-  id        Int       @id @default(autoincrement())
-  nama_role String    @unique @db.VarChar(50)
-  profiles  Profile[]
+  id        Int    @id @default(autoincrement())
+  nama_role String @unique @db.VarChar(50)
+
+  users User[]
 
   @@map("roles")
 }
 
 model User {
-  id           String              @id @db.Char(36)
-  name         String              @db.VarChar(100)
-  email        String              @unique
-  no_phone     String?             @db.VarChar(25)
-  agent_code   String?             @unique
-  nasabah_code String?             @unique
-  role_id      Int
-  created_at   DateTime            @default(now())
-  updated_at   DateTime            @updatedAt
-  statuses     ApplicationStatus[]
-  credits      CreditApplication[]
-  role         Role                @relation(fields: [role_id], references: [id])
+  id            String   @id @default(uuid()) @db.Char(36)
+  name          String   @db.VarChar(100)
+  email         String   @unique @db.VarChar(150)
+  password      String   @db.VarChar(255)
+  no_phone      String?  @db.VarChar(25)
+  agent_code    String?  @unique @db.VarChar(50)
+  nasabah_code  String?  @unique @db.VarChar(50)
+  role_id       Int
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  role     Role                 @relation(fields: [role_id], references: [id])
+  credits  CreditApplication[]
+  statuses ApplicationStatus[]
 
   @@index([role_id])
-  @@map("profiles")
+  @@map("users")
 }
 
 model CreditApplication {
-  id             Int                 @id @default(autoincrement())
-  kode_pengajuan String              @unique @db.VarChar(20)
-  nik            String              @db.VarChar(20)
-  nama_lengkap   String              @db.VarChar(150)
-  alamat         String
-  tanggal_lahir  DateTime            @db.Date
-  email          String              @db.VarChar(150)
+  id             Int         @id @default(autoincrement())
+  kode_pengajuan String      @unique @db.VarChar(20)
+  nik            String      @db.VarChar(20)
+  nama_lengkap   String      @db.VarChar(150)
+  alamat         String      @db.Text
+  tanggal_lahir  DateTime    @db.Date
+  email          String      @db.VarChar(150)
   jenis_kredit   JenisKredit
-  plafond        Decimal             @db.Decimal(15, 2)
+  plafond        Decimal     @db.Decimal(15, 2)
   jaminan        Jaminan
-  tempat_lahir   String              @db.VarChar(100)
-  profile_id     String              @db.Char(36)
-  created_at     DateTime            @default(now())
-  updated_at     DateTime            @updatedAt
-  slas           ApplicationSLA[]
-  statuses       ApplicationStatus[]
-  profile        Profile             @relation(fields: [profile_id], references: [id])
+  tempat_lahir   String      @db.VarChar(100)
 
-  @@index([profile_id], map: "credit_application_profile_id_fkey")
+  user_id    String   @db.Char(36)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user     User                @relation(fields: [user_id], references: [id])
+  statuses ApplicationStatus[]
+  slas     ApplicationSLA[]
+
+  @@index([user_id])
   @@map("credit_application")
 }
 
 model ApplicationStatus {
-  id             Int               @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   application_id Int
   status         StatusKredit
-  catatan        String?
-  created_at     DateTime          @default(now())
-  changed_by     String            @db.Char(36)
-  application    CreditApplication @relation(fields: [application_id], references: [id])
-  profile        Profile           @relation(fields: [changed_by], references: [id])
+  catatan        String?      @db.Text
+  created_at     DateTime     @default(now())
+  changed_by     String       @db.Char(36)
 
-  @@index([application_id], map: "application_status_application_id_fkey")
-  @@index([changed_by], map: "application_status_changed_by_fkey")
+  application CreditApplication @relation(fields: [application_id], references: [id])
+  user        User              @relation(fields: [changed_by], references: [id])
+
+  @@index([application_id])
+  @@index([changed_by])
   @@map("application_status")
 }
 
 model ApplicationSLA {
-  id               Int               @id @default(autoincrement())
-  application_id   Int
-  from_status      StatusKredit
-  to_status        StatusKredit
-  start_time       DateTime
-  end_time         DateTime
-  duration_minutes Int
-  catatan          String?
-  created_at       DateTime          @default(now())
-  application      CreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  id                Int          @id @default(autoincrement())
+  application_id    Int
+  from_status       StatusKredit
+  to_status         StatusKredit
+  start_time        DateTime
+  end_time          DateTime
+  duration_minutes  Int
+  catatan           String?      @db.Text
+  created_at        DateTime     @default(now())
+
+  application CreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
 
   @@index([application_id])
   @@map("application_sla")
 }
+
 
 enum JenisKredit {
   KREDIT_PRODUKTIF
@@ -105,4 +113,14 @@ enum StatusKredit {
   DIPROSES
   DITERIMA
   DITOLAK
+}
+
+enum JenisKelamin {
+  L
+  P
+}
+
+enum StatusAkun {
+  AKTIF
+  NONAKTIF
 }
