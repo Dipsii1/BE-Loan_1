@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { sendStatusUpdateEmail } = require('../config/nodemailer');
 
 // ================= HELPER SLA =================
 // Updated to work with existing database schema that uses status_kredit column
@@ -28,7 +29,7 @@ const calculateSLA = async (applicationId, newStatus, conn = null) => {
 
     if (durationMinutes < 0) return null;
 
-    // ✅ FIXED: Using status_kredit column instead of from_status/to_status
+    // Using status_kredit column instead of from_status/to_status
     const [result] = await connection.query(
       `INSERT INTO application_sla
        (application_id, status_kredit, start_time, end_time, duration_minutes, catatan)
@@ -159,9 +160,12 @@ const createStatus = async (req, res) => {
       });
     }
 
-    // Verify application exists
+    // Verify application exists and get user info
     const [appExists] = await conn.query(
-      `SELECT id FROM credit_application WHERE id = ?`,
+      `SELECT ca.id, ca.kode_pengajuan, ca.nama_lengkap, u.email 
+       FROM credit_application ca
+       LEFT JOIN users u ON ca.user_id = u.id
+       WHERE ca.id = ?`,
       [application_id]
     );
 
@@ -171,6 +175,8 @@ const createStatus = async (req, res) => {
         message: 'Pengajuan tidak ditemukan',
       });
     }
+
+    const applicationData = appExists[0];
 
     // Check authorization for non-admin users
     if (req.user.role_name !== 'Admin') {
@@ -209,9 +215,23 @@ const createStatus = async (req, res) => {
 
     await conn.commit();
 
+    //  KIRIM EMAIL KE USER
+    if (applicationData.email) {
+      sendStatusUpdateEmail(
+        applicationData.email,
+        applicationData.nama_lengkap,
+        applicationData.kode_pengajuan,
+        statusUpper,
+        catatan
+      ).catch(err => {
+        console.error('⚠️ Email notification failed:', err.message);
+        // Email gagal tidak menghalangi proses
+      });
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Status berhasil ditambahkan',
+      message: 'Status berhasil ditambahkan dan notifikasi email dikirim',
       insertId: result.insertId,
       sla: slaInfo,
     });
@@ -250,8 +270,13 @@ const updateStatus = async (req, res) => {
 
     await conn.beginTransaction();
 
+    //  Get existing status with application data
     const [existing] = await conn.query(
-      `SELECT * FROM application_status WHERE id = ?`,
+      `SELECT s.*, ca.kode_pengajuan, ca.nama_lengkap, u.email
+       FROM application_status s
+       LEFT JOIN credit_application ca ON s.application_id = ca.id
+       LEFT JOIN users u ON ca.user_id = u.id
+       WHERE s.id = ?`,
       [statusId]
     );
 
@@ -263,12 +288,14 @@ const updateStatus = async (req, res) => {
       });
     }
 
+    const statusData = existing[0];
+
     // Check authorization for non-admin users
     if (req.user.role_name !== 'Admin') {
       const [owned] = await conn.query(
         `SELECT id FROM credit_application 
          WHERE id = ? AND user_id = ?`,
-        [existing[0].application_id, req.user.id]
+        [statusData.application_id, req.user.id]
       );
 
       if (!owned.length) {
@@ -282,9 +309,9 @@ const updateStatus = async (req, res) => {
 
     let slaInfo = null;
 
-    if (existing[0].status_kredit !== statusUpper) {
+    if (statusData.status_kredit !== statusUpper) {
       slaInfo = await calculateSLA(
-        existing[0].application_id,
+        statusData.application_id,
         statusUpper,
         conn
       );
@@ -294,14 +321,27 @@ const updateStatus = async (req, res) => {
       `UPDATE application_status
        SET status_kredit = ?, catatan = ?, changed_by = ?
        WHERE id = ?`,
-      [statusUpper, catatan || existing[0].catatan, req.user.id, statusId]
+      [statusUpper, catatan || statusData.catatan, req.user.id, statusId]
     );
 
     await conn.commit();
 
+    //  KIRIM EMAIL KE USER (hanya jika status berubah)
+    if (statusData.status_kredit !== statusUpper && statusData.email) {
+      sendStatusUpdateEmail(
+        statusData.email,
+        statusData.nama_lengkap,
+        statusData.kode_pengajuan,
+        statusUpper,
+        catatan
+      ).catch(err => {
+        console.error('⚠️ Email notification failed:', err.message);
+      });
+    }
+
     res.json({
       success: true,
-      message: 'Status berhasil diperbarui',
+      message: 'Status berhasil diperbarui dan notifikasi email dikirim',
       sla: slaInfo,
     });
   } catch (err) {
@@ -393,7 +433,7 @@ const getSLAByApplication = async (req, res) => {
       }
     }
 
-    // ✅ FIXED: Query adjusted for single status_kredit column
+    //Query adjusted for single status_kredit column
     const [slaData] = await db.query(
       `SELECT 
         id,
