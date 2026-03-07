@@ -26,7 +26,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./
-          server-dir: /public_html/be-loan/
+          server-dir: /home/u719202173/domains/satufin.satufin.id/public_html/
           exclude: |
             **/.git*
             **/.git*/**
