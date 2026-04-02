@@ -14,5 +14,8 @@ router.get('/resend-verification', authUsers.resendVerification);
 router.post('/logout', authenticateToken, authUsers.logoutUser);
 router.get('/me', authenticateToken, authUsers.getCurrentUser);
 
+// change password route
+router.put('/change-password', authenticateToken, authUsers.changePassword);
+
 
 module.exports = router;

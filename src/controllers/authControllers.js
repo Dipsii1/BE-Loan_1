@@ -410,10 +410,81 @@ const getCurrentUser = async (req, res) => {
 };
 
 
+const changePassword = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Password lama dan password baru wajib diisi"
+      });
+    }
+
+    // Ambil user
+    const [rows] = await db.query(
+      "SELECT password FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan"
+      });
+    }
+
+    const user = rows[0];
+
+    // Cek password lama
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({
+        success: false,
+        message: "Password lama salah"
+      });
+    }
+
+    // Validasi password baru
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: "Password minimal 8 karakter"
+      });
+    }
+
+    // Hash password baru
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update password
+    await db.query(
+      "UPDATE users SET password = ? WHERE id = ?",
+      [hashedPassword, userId]
+    );
+
+    res.json({
+      success: true,
+      message: "Password berhasil diganti"
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+
+
 module.exports = {
   registerUser,
   verifyEmail,
   resendVerification,
+  changePassword,
   loginUser,
   logoutUser,
   getCurrentUser
