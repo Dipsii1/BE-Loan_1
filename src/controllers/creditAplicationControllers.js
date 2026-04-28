@@ -447,34 +447,81 @@ const updateApplication = async (req, res) => {
 
 // ================= DELETE APPLICATION =================
 const deleteApplication = async (req, res) => {
+  const conn = await db.getConnection();
+ 
   try {
-    const id = req.params.id;
-
-    const [existing] = await db.query(
-      "SELECT * FROM credit_application WHERE id = ?",
+    const id = Number(req.params.id);
+ 
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID pengajuan tidak valid',
+      });
+    }
+ 
+    // Cek apakah pengajuan ada
+    const [existing] = await conn.query(
+      `SELECT id, user_id, kode_pengajuan, nama_lengkap 
+       FROM credit_application 
+       WHERE id = ?`,
       [id]
     );
-
+ 
     if (!existing.length) {
       return res.status(404).json({
         success: false,
-        message: "Pengajuan tidak ditemukan"
+        message: 'Pengajuan tidak ditemukan',
       });
     }
-
-    if (existing[0].user_id !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: "Tidak punya akses"
-      });
+ 
+    // Cek otorisasi — Admin boleh hapus semua, user hanya miliknya
+    // Sesuaikan kondisi ini dengan field role di req.user Anda
+    const isAdmin =
+      req.user.role_name === 'Admin' ||
+      req.user.nama_role === 'Admin' ||
+      Number(req.user.role_id) === 1;
+ 
+    if (!isAdmin) {
+      if (existing[0].user_id !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Tidak ada akses untuk menghapus pengajuan ini',
+        });
+      }
     }
-
-    await db.query("DELETE FROM credit_application WHERE id = ?", [id]);
-
-    res.json({ success: true, message: "Pengajuan berhasil dihapus" });
-
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+ 
+    await conn.beginTransaction();
+ 
+    // Hapus SLA terkait terlebih dahulu (jika ada foreign key constraint)
+    await conn.query(
+      `DELETE FROM application_sla WHERE application_id = ?`,
+      [id]
+    );
+ 
+    // Hapus status terkait
+    await conn.query(
+      `DELETE FROM application_status WHERE application_id = ?`,
+      [id]
+    );
+ 
+    // Hapus credit application
+    await conn.query(
+      `DELETE FROM credit_application WHERE id = ?`,
+      [id]
+    );
+ 
+    await conn.commit();
+ 
+    res.json({
+      success: true,
+      message: `Pengajuan ${existing[0].kode_pengajuan} atas nama ${existing[0].nama_lengkap} berhasil dihapus`,
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error('Error deleting application:', err);
+    res.status(500).json({ success: false, error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
