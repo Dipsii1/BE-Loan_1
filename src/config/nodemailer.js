@@ -151,7 +151,7 @@ const sendVerificationEmail = async (email, name, verificationToken) => {
 
 // FUNGSI KIRIM EMAIL RESET PASSWORD
 const sendResetPasswordEmail = async (email, name, resetToken) => {
-    const resetUrl = `${process.env.FRONTEND_URL}reset-password?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
 
     const html = `
     <!DOCTYPE html>
