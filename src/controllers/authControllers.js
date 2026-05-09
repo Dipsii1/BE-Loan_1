@@ -2,10 +2,10 @@ const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { sendVerificationEmail } = require('../config/nodemailer');
+const { sendVerificationEmail, sendResetPasswordEmail } = require('../config/nodemailer');
 
 
-// ================= REGISTER USER (dengan Email Verification) =================
+//  REGISTER USER (dengan Email Verification) 
 const registerUser = async (req, res) => {
   try {
     const { name, email, no_phone, role_id, password } = req.body;
@@ -281,7 +281,7 @@ const resendVerification = async (req, res) => {
 };
 
 
-// ================= LOGIN USER (dengan cek verifikasi) =================
+//  LOGIN USER (dengan cek verifikasi) 
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -363,7 +363,7 @@ const loginUser = async (req, res) => {
 };
 
 
-// ================= LOGOUT =================
+//  LOGOUT 
 const logoutUser = async (req, res) => {
   res.json({
     success: true,
@@ -372,7 +372,7 @@ const logoutUser = async (req, res) => {
 };
 
 
-// ================= GET CURRENT USER =================
+//  GET CURRENT USER 
 const getCurrentUser = async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -410,65 +410,210 @@ const getCurrentUser = async (req, res) => {
 };
 
 
-const changePassword = async (req, res) => {
+// FORGOT PASSWORD
+const forgotPassword = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { oldPassword, newPassword } = req.body;
-
-    if (!oldPassword || !newPassword) {
+    const { email } = req.body;
+ 
+    if (!email) {
       return res.status(400).json({
         success: false,
-        message: "Password lama dan password baru wajib diisi"
+        message: "Email wajib diisi"
       });
     }
-
-    // Ambil user
-    const [rows] = await db.query(
-      "SELECT password FROM users WHERE id = ?",
-      [userId]
+ 
+    // Validasi format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Format email tidak valid"
+      });
+    }
+ 
+    const [users] = await db.query(
+      "SELECT id, name, email, email_verified, verification_token_expires FROM users WHERE email = ?",
+      [email]
     );
-
-    if (!rows.length) {
-      return res.status(404).json({
-        success: false,
-        message: "User tidak ditemukan"
+ 
+    // Selalu response sukses meski email tidak ditemukan (security best practice)
+    if (!users.length) {
+      return res.json({
+        success: true,
+        message: "Jika email terdaftar, link reset password akan dikirimkan."
       });
     }
-
-    const user = rows[0];
-
-    // Cek password lama
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
-
-    if (!isMatch) {
+ 
+    const user = users[0];
+ 
+    if (!user.email_verified) {
+      return res.status(403).json({
+        success: false,
+        message: "Email belum diverifikasi. Silakan verifikasi email Anda terlebih dahulu."
+      });
+    }
+ 
+    // Rate limiting sederhana: cegah spam request dalam 1 menit terakhir
+    if (user.verification_token_expires) {
+      const timeDiff = new Date(user.verification_token_expires) - new Date();
+      const minutesLeft = Math.floor(timeDiff / 60000);
+ 
+      // Token masih punya sisa lebih dari 14 menit → baru di-request < 1 menit lalu
+      if (minutesLeft > 14) {
+        return res.status(429).json({
+          success: false,
+          message: "Tunggu beberapa saat sebelum request ulang."
+        });
+      }
+    }
+ 
+    // Generate token reset — simpan ke kolom verification_token yang sudah ada
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 menit
+ 
+    await db.query(
+      "UPDATE users SET verification_token = ?, verification_token_expires = ? WHERE id = ?",
+      [resetToken, tokenExpires, user.id]
+    );
+ 
+    // Kirim email reset password
+    const emailResult = await sendResetPasswordEmail(user.email, user.name, resetToken);
+ 
+    if (!emailResult.success) {
+      console.error('⚠️ Failed to send reset password email:', emailResult.error);
+      return res.status(500).json({
+        success: false,
+        message: "Gagal mengirim email. Coba lagi nanti."
+      });
+    }
+ 
+    res.json({
+      success: true,
+      message: "Link reset password telah dikirim ke email Anda. Link berlaku selama 15 menit."
+    });
+ 
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+ 
+ 
+// VERIFY RESET TOKEN
+const verifyResetToken = async (req, res) => {
+  try {
+    const { token } = req.query;
+ 
+    if (!token) {
       return res.status(400).json({
         success: false,
-        message: "Password lama salah"
+        message: "Token tidak ditemukan"
       });
     }
-
-    // Validasi password baru
+ 
+    // Hanya cocokkan user yang email_verified = TRUE
+    // supaya token milik flow registrasi tidak bisa dipakai di sini
+    const [users] = await db.query(`
+      SELECT id, verification_token_expires
+      FROM users
+      WHERE verification_token = ? AND email_verified = TRUE
+    `, [token]);
+ 
+    if (!users.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Token tidak valid atau sudah digunakan"
+      });
+    }
+ 
+    const user = users[0];
+ 
+    if (new Date() > new Date(user.verification_token_expires)) {
+      return res.status(400).json({
+        success: false,
+        message: "Token sudah kadaluarsa. Silakan minta link reset baru."
+      });
+    }
+ 
+    res.json({
+      success: true,
+      message: "Token valid"
+    });
+ 
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message
+    });
+  }
+};
+ 
+ 
+// RESET PASSWORD
+const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+ 
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Token dan password baru wajib diisi"
+      });
+    }
+ 
     if (newPassword.length < 8) {
       return res.status(400).json({
         success: false,
         message: "Password minimal 8 karakter"
       });
     }
-
+ 
+    // Hanya cocokkan user yang email_verified = TRUE
+    const [users] = await db.query(`
+      SELECT id, verification_token_expires
+      FROM users
+      WHERE verification_token = ? AND email_verified = TRUE
+    `, [token]);
+ 
+    if (!users.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Token tidak valid atau sudah digunakan"
+      });
+    }
+ 
+    const user = users[0];
+ 
+    if (new Date() > new Date(user.verification_token_expires)) {
+      return res.status(400).json({
+        success: false,
+        message: "Token sudah kadaluarsa. Silakan minta link reset baru."
+      });
+    }
+ 
     // Hash password baru
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // Update password
-    await db.query(
-      "UPDATE users SET password = ? WHERE id = ?",
-      [hashedPassword, userId]
-    );
-
+ 
+    // Update password dan bersihkan token
+    await db.query(`
+      UPDATE users
+      SET password = ?,
+          verification_token = NULL,
+          verification_token_expires = NULL
+      WHERE id = ?
+    `, [hashedPassword, user.id]);
+ 
     res.json({
       success: true,
-      message: "Password berhasil diganti"
+      message: "Password berhasil direset. Silakan login dengan password baru Anda."
     });
-
+ 
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -479,13 +624,14 @@ const changePassword = async (req, res) => {
   }
 };
 
-
 module.exports = {
   registerUser,
   verifyEmail,
   resendVerification,
-  changePassword,
   loginUser,
   logoutUser,
-  getCurrentUser
+  getCurrentUser,
+  forgotPassword,
+  verifyResetToken,
+  resetPassword
 };

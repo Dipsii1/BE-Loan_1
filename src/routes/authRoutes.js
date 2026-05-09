@@ -15,7 +15,8 @@ router.post('/logout', authenticateToken, authUsers.logoutUser);
 router.get('/me', authenticateToken, authUsers.getCurrentUser);
 
 // change password route
-router.put('/change-password', authenticateToken, authUsers.changePassword);
-
+router.post('/forgot-password',authUsers.forgotPassword);
+router.get('/verify-reset-token',authUsers.verifyResetToken);
+router.post('/reset-password',authUsers.resetPassword);
 
 module.exports = router;

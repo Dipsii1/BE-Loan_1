@@ -22,7 +22,7 @@ transporter.verify((error, success) => {
     }
 });
 
-// ================= FUNGSI KIRIM EMAIL UMUM =================
+// FUNGSI KIRIM EMAIL UMUM
 const sendEmail = async (to, subject, html) => {
     try {
         const mailOptions = {
@@ -41,9 +41,8 @@ const sendEmail = async (to, subject, html) => {
     }
 };
 
-// ================= FUNGSI KIRIM EMAIL VERIFIKASI =================
+// FUNGSI KIRIM EMAIL VERIFIKASI
 const sendVerificationEmail = async (email, name, verificationToken) => {
-    // ✅ GANTI: Gunakan FRONTEND_URL, bukan BACKEND_URL
     const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${verificationToken}`;
 
     const html = `
@@ -150,7 +149,121 @@ const sendVerificationEmail = async (email, name, verificationToken) => {
     );
 };
 
-// ================= FUNGSI KIRIM EMAIL UPDATE STATUS =================
+// FUNGSI KIRIM EMAIL RESET PASSWORD
+const sendResetPasswordEmail = async (email, name, resetToken) => {
+    const resetUrl = `${process.env.FRONTEND_URL}reset-password?token=${resetToken}`;
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: 20px auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .header { 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+          color: white; 
+          padding: 40px 30px; 
+          text-align: center; 
+        }
+        .content { padding: 40px 30px; }
+        .button { 
+          display: inline-block; 
+          padding: 15px 40px; 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white; 
+          text-decoration: none; 
+          border-radius: 5px; 
+          font-weight: bold;
+          margin: 20px 0;
+        }
+        .info-box { 
+          background: #f8f9fa; 
+          padding: 20px; 
+          border-left: 4px solid #667eea; 
+          margin: 20px 0;
+          border-radius: 5px;
+        }
+        .footer { 
+          text-align: center; 
+          padding: 20px; 
+          color: #666; 
+          font-size: 14px; 
+          background: #f8f9fa;
+        }
+        .warning {
+          background: #fff3cd;
+          padding: 15px;
+          border-left: 4px solid #ffc107;
+          margin: 20px 0;
+          border-radius: 5px;
+        }
+        .danger {
+          background: #fdecea;
+          padding: 15px;
+          border-left: 4px solid #f44336;
+          margin: 20px 0;
+          border-radius: 5px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1 style="margin: 0; font-size: 28px;">🔐 Reset Password</h1>
+          <p style="margin: 10px 0 0 0; font-size: 16px;">Permintaan reset password Satufin</p>
+        </div>
+        
+        <div class="content">
+          <p>Halo <strong>${name}</strong>,</p>
+          
+          <p>Kami menerima permintaan untuk mereset password akun Satufin Anda. 
+          Klik tombol di bawah ini untuk membuat password baru:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" class="button">
+              Reset Password
+            </a>
+          </div>
+          
+          <div class="warning">
+            <p style="margin: 0;"><strong>⏰ Perhatian:</strong></p>
+            <p style="margin: 10px 0 0 0;">Link ini hanya berlaku selama <strong>15 menit</strong> 
+            dan hanya dapat digunakan <strong>satu kali</strong>.</p>
+          </div>
+
+          <p>Atau copy dan paste link berikut ke browser Anda:</p>
+          <p style="word-break: break-all; background: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 14px;">
+            ${resetUrl}
+          </p>
+          
+          <div class="danger">
+            <p style="margin: 0;"><strong>⚠️ Bukan Anda yang request?</strong></p>
+            <p style="margin: 10px 0 0 0;">Jika Anda tidak merasa melakukan permintaan ini, 
+            abaikan email ini. Password Anda tidak akan berubah dan akun Anda tetap aman.</p>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>Email ini dikirim secara otomatis oleh sistem.<br>
+          Jangan balas email ini.</p>
+          <p style="margin-top: 20px; color: #999; font-size: 12px;">
+            &copy; ${new Date().getFullYear()} Satufin. All rights reserved.
+          </p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    return await sendEmail(
+        email,
+        "Reset Password - Satufin",
+        html
+    );
+};
+
+// FUNGSI KIRIM EMAIL UPDATE STATUS
 const sendStatusUpdateEmail = async (userEmail, userName, kodePengajuan, statusBaru, catatan) => {
     const statusConfig = {
         'DIAJUKAN': {
@@ -289,9 +402,9 @@ const sendStatusUpdateEmail = async (userEmail, userName, kodePengajuan, statusB
     );
 };
 
-// EXPORT SEMUA FUNGSI
 module.exports = {
     sendEmail,
     sendVerificationEmail,
+    sendResetPasswordEmail,
     sendStatusUpdateEmail
 };
